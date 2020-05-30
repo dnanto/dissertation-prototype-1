@@ -1,0 +1,66 @@
+---
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lubridate)
+knitr::opts_chunk$set(echo = TRUE)
+root <- "../../Documents/OneDrive - George Mason University/dissertation"
+```
+
+```{r B55_surveillance_data}
+surveillance <-
+  file.path(root, "HAdV.xlsx") %>%
+  readxl::read_xlsx(sheet = "surveillance") %>%
+  filter(startsWith(type, "11") | type == "55") %>%
+  mutate(
+    d1 = lubridate::parse_date_time(date1, orders = c("%Y-%m-%d", "%Y-%m", "%Y")),
+    d2 = lubridate::parse_date_time(date2, orders = c("%Y-%m-%d", "%Y-%m", "%Y"))
+  ) %>%
+  # need to reconvert to Date due to ceiling_date behavior...
+  # mutate_at(c("d1", "d2"), as.Date) %>%
+  mutate(
+    d2 = case_when(
+      !is.na(d2) & str_detect(date2, "\\d{4}-\\d{2}-\\d{2}") ~ d2,
+      !is.na(d2) & str_detect(date2, "\\d{4}-\\d{2}") ~ ceiling_date(d2, "month") + months(1) - days(1),
+      !is.na(d2) & str_detect(date2, "\\d{4}") ~ ceiling_date(d2, "year") + years(1) - days(1),
+      is.na(d2) & str_detect(date1, "\\d{4}-\\d{2}-\\d{2}") ~ d1,
+      is.na(d2) & str_detect(date1, "\\d{4}-\\d{2}") ~ ceiling_date(d1, "month") + months(1) - days(1),
+      is.na(d2) & str_detect(date1, "\\d{4}") ~ ceiling_date(d1, "year") + years(1) - days(1)
+    )
+  ) %>%
+  mutate(
+    key = if_else(is.na(doi), citekey, doi),
+    geo = str_remove(str_c(continent, replace_na(country, ""), sep = "|"), "\\|$")
+  ) %>%
+  arrange(desc(d1))
+
+surveillance$key <- with(surveillance, factor(key, levels = unique(key)))
+```
+
+```{r, B55_surveillance_plot}
+ggplot(surveillance) +
+  geom_point(aes(d1, as.numeric(key), color = geo), pch = 4, size = 0.5) +
+  geom_rect(
+    aes(
+      xmin = d1, xmax = d2,
+      ymin = as.numeric(key) - 0.5, ymax = as.numeric(key) + 0.5,
+      fill = geo
+    )
+  ) +
+  scale_x_datetime(labels = scales::date_format("%Y"), date_breaks = "5 year") +
+  scale_y_discrete(limits = levels(surveillance$key)) +
+  labs(x = "date", y = "study") +
+  guides(col = guide_legend(nrow = 2)) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom", 
+    text = element_text(family = "mono"),
+    axis.text.x = element_text(angle = 90, vjust = 0.5),
+    axis.text.y = element_blank()
+  )
+
+ggsave("B55_surveillance_plot.pdf", width = 6)
+```
+
