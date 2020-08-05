@@ -64,3 +64,9 @@ ggplot(surveillance) +
 ggsave("B55_surveillance_plot.pdf", width = 6)
 ```
 
+```{r, B55_surveillance_table}
+select(surveillance, type, date1, date2, continent, country, population, deaths) %>%
+  mutate_at(c("country", "deaths"), replace_na, "") %>%
+  arrange(date1) %>%
+  knitr::kable()
+```
