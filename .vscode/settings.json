@@ -1,0 +1,7 @@
+{
+    "python.pythonPath": "/Users/dnanto/miniconda3/envs/bio/bin/python",
+    "python.formatting.provider": "black",
+    "python.formatting.blackArgs": [
+        "--line-length=100"
+    ]
+}
