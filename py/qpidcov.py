@@ -2,16 +2,16 @@
 
 import sys
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser, FileType
-from signal import SIG_DFL, SIGPIPE, signal
-from itertools import chain
-from Bio import SeqIO
 from collections import OrderedDict
-from itertools import groupby
+from itertools import chain, groupby
+from signal import SIG_DFL, SIGPIPE, signal
+
+from Bio import SeqIO
 
 
-def parse_outfmt7(file):
+def parse_outfmt7(stream):
     fields = []
-    for line in map(str.strip, file):
+    for line in map(str.strip, stream):
         if line.startswith("# Fields: "):
             fields = line[10:].split(", ")
         elif line and not line.startswith("#"):
@@ -46,6 +46,7 @@ def main(argv):
     args = parse_argv(argv[1:])
 
     with args.file as stream:
+        print("accver", "start", "end", "strand", "qpidcov", sep="\t")
         for row in sorted(aggregate(stream), key=lambda row: -row[-1]):
             print(*row, sep="\t")
 
