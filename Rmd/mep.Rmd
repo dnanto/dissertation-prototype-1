@@ -10,10 +10,15 @@ Sys.setenv(np = parallel::detectCores())
 ```
 
 ```{bash}
-ffidx.py "../data/genbank/10508.db" -entry "FJ643676.1" -fo gb | \
-  ffcds.py - | \
-  ffidx.py - -entry "ACU57015.1" | \
-  blastn -db ../data/blast/10508 -outfmt "7 std qlen staxid" -subject_besthit -num_threads "$np" > \
+python -m ffbio.ffidx "../data/genbank/10508.db" -entry "FJ643676.1" -fo gb | \
+  tee ref.gbk | \
+  python -m ffbio.ffidx - -dump -fi gb | \
+  tee ref.fna | \
+  blastn \
+    -db ../data/blast/10508 \
+    -outfmt "7 std qlen staxid" \
+    -num_threads "$np" \
+    -subject_besthit > \
   hits.tsv
 ```
 
@@ -44,6 +49,7 @@ group_by(df.hits, saccver) %>%
     .groups = "drop"
   ) %>%
   filter(qpidcov >= 90) %>%
+  mutate(strain = saccver, virus = "HAdV-B55") %>%
   left_join(df.meta, c(saccver = "accver")) %>%
   filter(!is.na(date)) %>%
   arrange(date) %>%
@@ -58,19 +64,23 @@ with(df.agg, write_lines(sprintf("%s %d-%d", saccver, sstart, send), "ebat.ssv")
 ```{bash}
 blastdbcmd -db ../data/blast/10508 -entry_batch ebat.ssv | \
   sed '/^>/ s/:.*//' | 
-  mafft --auto --adjustdirection --thread -1 - > msa.fna 2> msa.log
+  mafft --auto --adjustdirection --thread -1 - > msa-1.fna 2> msa-1.log
 ```
 
 ```{r}
-ape::read.dna("msa.fna", format = "fasta", as.character = T, as.matrix = T) %>%
+ape::read.dna("msa-1.fna", format = "fasta", as.character = T, as.matrix = T) %>%
   apply(1, function(ele) {
     ele <- paste(ele, collapse = "")
     sum(str_length(str_match(ele, "^-+")), str_length(str_match(ele, "^-+$")), na.rm = T)
   }) -> gaps
+
+idxs <- gaps == 0
+
+ape::write.FASTA(ape::read.FASTA("msa-1.fna")[idxs], "msa-2.fna")
 ```
 
 ```{bash}
-run_gubbins.py msa.fna -i 1000 -p gub -c "$np" > gub.log
+run_gubbins.py msa-2.fna -i 1000 -p gub -c "$np" > gub.log
 ```
 
 ```{r}
@@ -95,7 +105,7 @@ pivot_longer(df.block, c("start", "end")) %>%
   with(unique(c(0, value, nchar))) ->
   idx
 
-write_tsv(bind_rows(lapply(df.agg$saccver[gaps == 0], function(ele)
+write_tsv(bind_rows(lapply(df.agg$saccver[idxs], function(ele)
   data.frame(
     chrom = ele, chromStart = 0, chromEnd = nchar, name = ele,
     score = 0, strand = ".", thickStart = 0, thickEnd = 0, itemRgb = 0,
@@ -103,16 +113,17 @@ write_tsv(bind_rows(lapply(df.agg$saccver[gaps == 0], function(ele)
     blockSizes = paste(idx[c(F, T)] - idx[c(T, F)], collapse = ","),
     blockStarts = paste(idx[c(T, F)], collapse = ",")
   )
-)), "msa.bed", col_names = F)
+)), "mep.bed", col_names = F)
 ```
 
 ```{bash}
-bedtools getfasta -fi msa.fna -bed msa.bed -split -name | \
+rm -f msa-2.fna.fai && \
+  bedtools getfasta -fi msa-2.fna -bed mep.bed -split -name | \
   sed '/^>/ s/:.*//' > \
-  ext.fna
+  mep.fna
 ```
 
 ```{bash}
-rm phy.* && \
-  iqtree -s ext.fna -pre phy -alrt 1000 -bb 1000 -bnni -nt AUTO > /dev/null 2> /dev/null
+rm -f phy.* && \
+  iqtree -s mep.fna -pre phy -alrt 1000 -bb 1000 -bnni -nt AUTO > /dev/null 2> /dev/null
 ```
