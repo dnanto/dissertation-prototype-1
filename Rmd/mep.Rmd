@@ -2,13 +2,15 @@
 title: ''
 output: html_document
 params:
+  ref: "FJ643676.1"
+  thr: 95
   fdb: "/Users/dnanto/GitHub/dissertation/data/genbank/10508.db"
   bdb: "/Users/dnanto/GitHub/dissertation/data/blast/10508"
   tsv: "/Users/dnanto/GitHub/dissertation/data/genbank/10508.tsv"
   gps: "/Users/dnanto/GitHub/dissertation/data/meta/coor.tsv"
-  vir: "HAdV-B55"
-  out: out
   cpu: 16
+  vir: "HAdV-B55"
+  out: "HAdV-B55"
 ---
 
 ```{r setup, include=FALSE}
@@ -20,13 +22,14 @@ dir.create(params$out, showWarnings = F)
 
 ```{bash}
 cd "$out" || exit && \
-python -m ffbio.ffidx "$fdb" -entry "FJ643676.1" -fo gb | \
+python -m ffbio.ffidx "$fdb" -entry "$ref" -fo gb | \
   tee ref.gb | \
   python -m ffbio.ffidx - -dump -fi gb | \
   tee ref.fna | \
   blastn \
+    -task megablast \
     -db "$bdb" \
-    -outfmt "7 std qlen staxid" \
+    -outfmt "7 std qlen stitle staxid" \
     -num_threads "$cpu" \
     -subject_besthit > \
   hits.tsv
@@ -38,7 +41,7 @@ fields <- c(
   pident = "d", length = "i", mismatch = "i", gapopen = "i", 
   qstart = "i", qend = "i", sstart = "i", send = "i", 
   evalue = "d", bitscore = "i", 
-  qlen = "i", staxid = "i"
+  qlen = "i", stitle = "c", staxid = "i"
 )
 df.hits <- read_tsv(
   file.path(params$out, "hits.tsv"), 
@@ -46,27 +49,29 @@ df.hits <- read_tsv(
   col_types = paste(fields, collapse = ""), 
   comment = "#"
 )
+
 df.meta <- read_tsv(params$tsv, col_types = "ccfDfff", na = "?")
 
 group_by(df.hits, saccver) %>%
   summarise(
-    qpidcov = (sum(length) - sum(gapopen) - sum(mismatch)) / qlen * 100,
+    qpidcov = (sum(length) - sum(gapopen) - sum(mismatch)) / first(qlen) * 100,
     sstart = min(sstart, send),
     send = max(sstart, send),
-    staxid = staxid,
+    staxid = first(staxid),
+    stitle = first(stitle),
     .groups = "drop"
   ) %>%
-  filter(qpidcov >= 87.5) %>%
+  filter(qpidcov >= params$thr) %>%
   mutate(strain = saccver, virus = params$vir) %>%
   left_join(df.meta, c(saccver = "accver")) %>%
   filter(!is.na(date)) %>%
   arrange(date) %>%
-  write_tsv(file.path(params$out, "agg.tsv")) ->
-  df.agg
+  write_tsv(file.path(params$out, "meta.tsv")) ->
+  df.meta
 
-with(df.agg, write_lines(sprintf("%s %d-%d", saccver, sstart, send), file.path(params$out, "ebat.ssv")))
+with(df.meta, write_lines(sprintf("%s %d-%d", saccver, sstart, send), file.path(params$out, "ebat.ssv")))
 read_tsv(params$gps, col_names = c("key", "cc2", "lat", "lon"), col_types = cols(.default = "c")) %>%
-  left_join(df.agg, ., by = "cc2") %>%
+  left_join(df.meta, ., by = "cc2") %>%
   select(key, cc2, lat, lon) %>%
   write_tsv(file.path(params$out, "coor.tsv"), col_names = F)
 ```
@@ -76,8 +81,10 @@ cd "$out" || exit && \
 blastdbcmd -db "$bdb" -entry_batch ebat.ssv | \
   sed '/^>/ s/:.*//' | \
   tee seq.fna | \
-  mafft --auto --adjustdirection --thread -1 - > msa.fna 2> msa.log && \
-  run_gubbins.py msa.fna -i 1000 -p gub -c "$cpu" > gub.log
+  mafft --auto --adjustdirection --thread -1 - 2> msa.log | \
+  # convert ambiguous bases and non-gap characters to N
+  sed "/^[^>]/ s/[^ACGTNacgtn-]/N/g" > msa.fna && \
+run_gubbins.py msa.fna -p gub -c "$cpu" > gub.log
 ```
 
 ```{r}
@@ -89,20 +96,21 @@ ape::read.gff(file.path(params$out, "gub.recombination_predictions.gff")) %>%
   mutate(start = start - 1, end = end) ->
   df.bed
 
-lapply(df.agg$saccver, function(ele) with(df.bed, data.frame(ele, start, end))) %>%
+lapply(df.meta$saccver, function(ele) with(df.bed, data.frame(ele, start, end))) %>%
   bind_rows() %>%
   write_tsv(file.path(params$out, "mask.bed"), col_names = F)
 ```
 
 ```{bash}
 cd "$out" || exit && \
-  bedtools maskfasta -fi msa.fna -bed mask.bed -fo msa.tmp && \
-  mv msa.tmp msa.fna
+bedtools maskfasta -fi msa.fna -bed mask.bed -fo msa.tmp && \
+mv msa.tmp msa.fna
 ```
 
 ```{bash}
 cd "$out" || exit && \
 rm -f phy.* && \
-  iqtree -s msa.fna -pre phy -alrt 1000 -bb 1000 -bnni -nt AUTO > /dev/null 2> /dev/null && \
-  sed -E 's/[0-9\.]+\/[0-9\.]+//g' phy.treefile > phy.nwk
+iqtree -s msa.fna -pre phy -alrt 1000 -bb 1000 -bnni -nt AUTO > /dev/null 2> /dev/null && \
+# remove bootstraps for basic Newick file
+sed -E 's/[0-9\.]+\/[0-9\.]+//g' phy.treefile > phy.nwk
 ```
