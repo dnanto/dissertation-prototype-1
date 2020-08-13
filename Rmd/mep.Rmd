@@ -1,23 +1,33 @@
 ---
 title: ''
 output: html_document
+params:
+  fdb: "/Users/dnanto/GitHub/dissertation/data/genbank/10508.db"
+  bdb: "/Users/dnanto/GitHub/dissertation/data/blast/10508"
+  tsv: "/Users/dnanto/GitHub/dissertation/data/genbank/10508.tsv"
+  gps: "/Users/dnanto/GitHub/dissertation/data/meta/coor.tsv"
+  vir: "HAdV-B55"
+  out: out
+  cpu: 16
 ---
 
 ```{r setup, include=FALSE}
 library(tidyverse)
-knitr::opts_chunk$set(echo = TRUE)
-Sys.setenv(np = parallel::detectCores())
+knitr::opts_chunk$set(echo = T)
+do.call(Sys.setenv, params)
+dir.create(params$out, showWarnings = F)
 ```
 
 ```{bash}
-python -m ffbio.ffidx "../data/genbank/10508.db" -entry "FJ643676.1" -fo gb | \
-  tee ref.gbk | \
+cd "$out" || exit && \
+python -m ffbio.ffidx "$fdb" -entry "FJ643676.1" -fo gb | \
+  tee ref.gb | \
   python -m ffbio.ffidx - -dump -fi gb | \
   tee ref.fna | \
   blastn \
-    -db ../data/blast/10508 \
+    -db "$bdb" \
     -outfmt "7 std qlen staxid" \
-    -num_threads "$np" \
+    -num_threads "$cpu" \
     -subject_besthit > \
   hits.tsv
 ```
@@ -31,99 +41,68 @@ fields <- c(
   qlen = "i", staxid = "i"
 )
 df.hits <- read_tsv(
-  "hits.tsv", 
+  file.path(params$out, "hits.tsv"), 
   col_names = names(fields), 
   col_types = paste(fields, collapse = ""), 
   comment = "#"
 )
-df.meta <- read_tsv("../data/genbank/10508.tsv", col_types = "ccfDfff", na = "?")
-```
+df.meta <- read_tsv(params$tsv, col_types = "ccfDfff", na = "?")
 
-```{r}
 group_by(df.hits, saccver) %>%
   summarise(
-    qpidcov = (sum(length) - sum(gapopen) - sum(mismatch)) / sum(qlen) * 100,
+    qpidcov = (sum(length) - sum(gapopen) - sum(mismatch)) / qlen * 100,
     sstart = min(sstart, send),
     send = max(sstart, send),
     staxid = staxid,
     .groups = "drop"
   ) %>%
-  filter(qpidcov >= 90) %>%
-  mutate(strain = saccver, virus = "HAdV-B55") %>%
+  filter(qpidcov >= 87.5) %>%
+  mutate(strain = saccver, virus = params$vir) %>%
   left_join(df.meta, c(saccver = "accver")) %>%
   filter(!is.na(date)) %>%
   arrange(date) %>%
-  write_tsv("agg.tsv") ->
+  write_tsv(file.path(params$out, "agg.tsv")) ->
   df.agg
-```
 
-```{r}
-with(df.agg, write_lines(sprintf("%s %d-%d", saccver, sstart, send), "ebat.ssv"))
-```
-
-```{bash}
-blastdbcmd -db ../data/blast/10508 -entry_batch ebat.ssv | \
-  sed '/^>/ s/:.*//' | 
-  mafft --auto --adjustdirection --thread -1 - > msa-1.fna 2> msa-1.log
-```
-
-```{r}
-ape::read.dna("msa-1.fna", format = "fasta", as.character = T, as.matrix = T) %>%
-  apply(1, function(ele) {
-    ele <- paste(ele, collapse = "")
-    sum(str_length(str_match(ele, "^-+")), str_length(str_match(ele, "^-+$")), na.rm = T)
-  }) -> gaps
-
-idxs <- gaps == 0
-
-ape::write.FASTA(ape::read.FASTA("msa-1.fna")[idxs], "msa-2.fna")
+with(df.agg, write_lines(sprintf("%s %d-%d", saccver, sstart, send), file.path(params$out, "ebat.ssv")))
+read_tsv(params$gps, col_names = c("key", "cc2", "lat", "lon"), col_types = cols(.default = "c")) %>%
+  left_join(df.agg, ., by = "cc2") %>%
+  select(key, cc2, lat, lon) %>%
+  write_tsv(file.path(params$out, "coor.tsv"), col_names = F)
 ```
 
 ```{bash}
-run_gubbins.py msa-2.fna -i 1000 -p gub -c "$np" > gub.log
+cd "$out" || exit && \
+blastdbcmd -db "$bdb" -entry_batch ebat.ssv | \
+  sed '/^>/ s/:.*//' | \
+  tee seq.fna | \
+  mafft --auto --adjustdirection --thread -1 - > msa.fna 2> msa.log && \
+  run_gubbins.py msa.fna -i 1000 -p gub -c "$cpu" > gub.log
 ```
 
 ```{r}
-path <- "gub.recombination_predictions.gff"
-
-ape::read.gff(path) %>%
+ape::read.gff(file.path(params$out, "gub.recombination_predictions.gff")) %>%
   # collapse overlapping ranges: https://stackoverflow.com/a/41748023
   arrange(start) %>%
   group_by(g = cumsum(cummax(lag(end, default = first(end))) < start)) %>% 
   summarise(start = first(start), end = max(end), .groups = "drop") %>%
   mutate(start = start - 1, end = end) ->
-  df.block
+  df.bed
 
-read_lines(path) %>%
-  .[grep("^##sequence-region ", .)] %>%
-  str_split_fixed(" ", 4) %>% 
-  .[ , 4] %>% 
-  as.integer() -> 
-  nchar
-
-pivot_longer(df.block, c("start", "end")) %>%
-  with(unique(c(0, value, nchar))) ->
-  idx
-
-write_tsv(bind_rows(lapply(df.agg$saccver[idxs], function(ele)
-  data.frame(
-    chrom = ele, chromStart = 0, chromEnd = nchar, name = ele,
-    score = 0, strand = ".", thickStart = 0, thickEnd = 0, itemRgb = 0,
-    blockCount = length(idx) / 2,
-    blockSizes = paste(idx[c(F, T)] - idx[c(T, F)], collapse = ","),
-    blockStarts = paste(idx[c(T, F)], collapse = ",")
-  )
-)), "mep.bed", col_names = F)
+lapply(df.agg$saccver, function(ele) with(df.bed, data.frame(ele, start, end))) %>%
+  bind_rows() %>%
+  write_tsv(file.path(params$out, "mask.bed"), col_names = F)
 ```
 
 ```{bash}
-rm -f msa-2.fna.fai && \
-  bedtools getfasta -fi msa-2.fna -bed mep.bed -split -name | \
-  sed '/^>/ s/:.*//' > \
-  mep.fna
+cd "$out" || exit && \
+  bedtools maskfasta -fi msa.fna -bed mask.bed -fo msa.tmp && \
+  mv msa.tmp msa.fna
 ```
 
 ```{bash}
+cd "$out" || exit && \
 rm -f phy.* && \
-  iqtree -s mep.fna -pre phy -alrt 1000 -bb 1000 -bnni -nt AUTO > /dev/null 2> /dev/null
+  iqtree -s msa.fna -pre phy -alrt 1000 -bb 1000 -bnni -nt AUTO > /dev/null 2> /dev/null && \
+  sed -E 's/[0-9\.]+\/[0-9\.]+//g' phy.treefile > phy.nwk
 ```
