@@ -19,7 +19,6 @@ suppressPackageStartupMessages({
   library(tidyverse)
   library(ggtree)
   library(lubridate)
-  library(BactDating)
 })
 knitr::opts_chunk$set(echo = T)
 do.call(Sys.setenv, params)
