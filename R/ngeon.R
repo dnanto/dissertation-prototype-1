@@ -15,7 +15,7 @@ n <- if(length(args) <= 4) parallel::detectCores() else args[5] # cores
 
 df <- read_delim(f, d, col_types = cols(.default = "c"))
 country <- unique(df[[c]])
-geo <- parallel::mclapply(country, geonamify_delim, delim = "[:,]", mc.cores = n)
+geo <- parallel::mclapply(country, adminify, delim = "[:,]", mc.cores = n)
 df.ac <- data.frame(id = 1:length(geo), country = country, do.call(rbind, lapply(geo, `[[`, "ac")))
 df.id <- data.frame(id = 1:length(geo), country = country, do.call(rbind, lapply(geo, `[[`, "id")))
 
