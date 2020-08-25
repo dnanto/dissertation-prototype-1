@@ -1,0 +1,24 @@
+---
+title: "bdat"
+output: html_document
+params:
+  mod: "poisson,strictgamma,relaxedgamma,mixedgamma"
+  itb: 1000
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+phy.gub <- loadGubbins(file.path(params$out, "gub"))
+tip.date <- decimal_date(ymd(df.meta[match(phy.gub$tip.label, df.meta$saccver), ]$date))
+models <- strsplit(params$mod, ",")[[1]]
+runs <- setNames(parallel::mclapply(
+  models, 
+  function(model) {
+    bactdate(phy.gub, tip.date, model = model, nbIts = params$itb, useRec = T, thin = 1)
+  }, 
+  mc.cores = min(params$cpu, length(models))
+), models)
+```
