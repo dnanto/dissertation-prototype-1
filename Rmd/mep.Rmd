@@ -1,37 +1,54 @@
 ---
-title: ''
+title: "mep"
+date: !r format(Sys.time(), "%B %d, %Y")
 output: html_document
 params:
-  ref: "FJ643676.1"
-  thr: 95
+  acc: "FJ643676.1"
+  pid: ""
   fdb: "/Users/dnanto/GitHub/dissertation/data/genbank/10508.db"
   bdb: "/Users/dnanto/GitHub/dissertation/data/blast/10508"
   tsv: "/Users/dnanto/GitHub/dissertation/data/genbank/10508.tsv"
-  gps: "/Users/dnanto/GitHub/dissertation/data/meta/coor.tsv"
-  cpu: 16
-  vir: "HAdV-B55"
-  out: "HAdV-B55"
+  thr: 85
+  itr: 10
+  cpu: !r parallel::detectCores()
+  out: "/Users/dnanto/GitHub/dissertation/out/gen"
 ---
 
-```{r setup, include=FALSE}
-library(tidyverse)
+```{r setup}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(ggtree)
+  library(lubridate)
+  library(BactDating)
+})
 knitr::opts_chunk$set(echo = T)
 do.call(Sys.setenv, params)
-dir.create(params$out, showWarnings = F)
+dir.create(params$out, showWarnings = F, recursive = T)
+```
+
+```{r}
+enframe(unlist(params), "key", "val")
 ```
 
 ```{bash}
-cd "$out" || exit && \
-python -m ffbio.ffidx "$fdb" -entry "$ref" -fo gb | \
-  tee ref.gb | \
-  python -m ffbio.ffidx - -dump -fi gb | \
-  tee ref.fna | \
-  blastn \
-    -task megablast \
-    -db "$bdb" \
-    -outfmt "7 std qlen stitle staxid" \
-    -num_threads "$cpu" \
-    -subject_besthit > \
+cd "$out" || exit
+
+if [[ $pid ]]; then
+  python -m ffbio.ffidx "$fdb" -entry "$acc" -fo gb | \
+    python -m ffbio.ffcds - | \
+    python -m ffbio.ffidx - -entry "$pid" > \
+    ref.fna
+else
+  python -m ffbio.ffidx "$fdb" -entry "$acc" > ref.fna
+fi
+
+blastn \
+  -task megablast \
+  -db "$bdb" \
+  -query ref.fna \
+  -outfmt "7 std qlen stitle" \
+  -num_threads "$cpu" \
+  -subject_besthit > \
   hits.tsv
 ```
 
@@ -41,7 +58,7 @@ fields <- c(
   pident = "d", length = "i", mismatch = "i", gapopen = "i", 
   qstart = "i", qend = "i", sstart = "i", send = "i", 
   evalue = "d", bitscore = "i", 
-  qlen = "i", stitle = "c", staxid = "i"
+  qlen = "i", stitle = "c"
 )
 df.hits <- read_tsv(
   file.path(params$out, "hits.tsv"), 
@@ -50,7 +67,7 @@ df.hits <- read_tsv(
   comment = "#"
 )
 
-df.meta <- read_tsv(params$tsv, col_types = "ccfDfff", na = "?")
+df.meta <- read_tsv(params$tsv, col_types = cols(date = "D", .default = "c"), na = "?")
 
 group_by(df.hits, saccver) %>%
   summarise(
@@ -62,55 +79,27 @@ group_by(df.hits, saccver) %>%
     .groups = "drop"
   ) %>%
   filter(qpidcov >= params$thr) %>%
-  mutate(strain = saccver, virus = params$vir) %>%
   left_join(df.meta, c(saccver = "accver")) %>%
   filter(!is.na(date)) %>%
   arrange(date) %>%
   write_tsv(file.path(params$out, "meta.tsv")) ->
   df.meta
 
-with(df.meta, write_lines(sprintf("%s %d-%d", saccver, sstart, send), file.path(params$out, "ebat.ssv")))
-read_tsv(params$gps, col_names = c("key", "cc2", "lat", "lon"), col_types = cols(.default = "c")) %>%
-  left_join(df.meta, ., by = "cc2") %>%
-  select(key, cc2, lat, lon) %>%
-  write_tsv(file.path(params$out, "coor.tsv"), col_names = F)
+with(df.meta, {
+  write_lines(sprintf("%s %d-%d", saccver, sstart, send), file.path(params$out, "ebat.ssv"))
+})
 ```
 
 ```{bash}
 cd "$out" || exit && \
 blastdbcmd -db "$bdb" -entry_batch ebat.ssv | \
-  sed '/^>/ s/:.*//' | \
-  tee seq.fna | \
-  mafft --auto --adjustdirection --thread -1 - 2> msa.log | \
+  sed -e "s/:.*//" | \
+  mafft --auto --adjustdirection --thread "$cpu" - 2> msa.log | \
   # convert ambiguous bases and non-gap characters to N
-  sed "/^[^>]/ s/[^ACGTNacgtn-]/N/g" > msa.fna && \
-run_gubbins.py msa.fna -p gub -c "$cpu" > gub.log
+  sed "/^[^>]/ s/[^ACGTNacgtn]/n/g" > \
+  msa.fna && \
+run_gubbins.py msa.fna -i "$itr" -p gub -c "$cpu" > gub.log && \
+rm -rf iqt.* && \
+iqtree -pre iqt -s msa.fna -m TESTONLY -nt "$cpu"
 ```
 
-```{r}
-ape::read.gff(file.path(params$out, "gub.recombination_predictions.gff")) %>%
-  # collapse overlapping ranges: https://stackoverflow.com/a/41748023
-  arrange(start) %>%
-  group_by(g = cumsum(cummax(lag(end, default = first(end))) < start)) %>% 
-  summarise(start = first(start), end = max(end), .groups = "drop") %>%
-  mutate(start = start - 1, end = end) ->
-  df.bed
-
-lapply(df.meta$saccver, function(ele) with(df.bed, data.frame(ele, start, end))) %>%
-  bind_rows() %>%
-  write_tsv(file.path(params$out, "mask.bed"), col_names = F)
-```
-
-```{bash}
-cd "$out" || exit && \
-bedtools maskfasta -fi msa.fna -bed mask.bed -fo msa.tmp && \
-mv msa.tmp msa.fna
-```
-
-```{bash}
-cd "$out" || exit && \
-rm -f phy.* && \
-iqtree -s msa.fna -pre phy -alrt 1000 -bb 1000 -bnni -nt AUTO > /dev/null 2> /dev/null && \
-# remove bootstraps for basic Newick file
-sed -E 's/[0-9\.]+\/[0-9\.]+//g' phy.treefile > phy.nwk
-```
