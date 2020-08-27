@@ -13,14 +13,13 @@ c2 <- args[5] # column to convert from
 f2 <- args[6:length(args)] # formats to convert from
 
 
-read_delim(f, d, col_types = cols(.default = "c")) %>%
-  bind_cols(
-    .,
-    lubridate::parse_date_time(.[[c2]], f2, quiet = T) %>%
-      strftime(f1) %>%
-      as.data.frame() %>%
-      setNames(c1) %>%
-      mutate_all(coalesce, "?")
-  ) %>%
+df <- read_delim(f, d, col_types = cols(.default = "c"))
+
+lubridate::parse_date_time(df[[c2]], f2, quiet = T) %>%
+  strftime(f1) %>%
+  as.data.frame() %>%
+  setNames(c1) %>%
+  mutate_all(coalesce, "?") %>%
+  bind_cols(df, .) %>%
   format_delim(d) %>%
   cat()

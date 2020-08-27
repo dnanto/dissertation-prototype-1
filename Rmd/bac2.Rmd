@@ -1,0 +1,61 @@
+---
+title: "bac2"
+output: html_document
+params:
+  out: "/Users/dnanto/GitHub/dissertation/out/FJ643676.1"
+  tsv: "/Users/dnanto/GitHub/dissertation/data/genbank/10508.tsv"
+  cpu: !r parallel::detectCores()
+---
+
+```{r setup, include=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(ggtree)
+})
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+runs <- qs::qread(file.path(params$out, "bact.qs"), nthreads = params$cpu)
+```
+
+```{r}
+run <- runs[[which.min(sapply(runs, "[[", "dic"))]]
+```
+
+```{r, fig.height=2, fig.width=10}
+plot(run, "trace")
+```
+
+```{r}
+coda::effectiveSize(as.mcmc.resBactDating(run, burnin = params$brn))
+```
+
+```{r, fig.width=10, fig.height=10}
+df.meta <- read_tsv(params$tsv, col_types = cols(date = "D", .default = "c"), na = "?")
+
+tdat <- BactDating::as.treedata.resBactDating(run)
+tip.data <- str_split_fixed(tdat[[1]]$tip.label, "_", 2)
+tdat[[1]]$tip.label <- tip.data[, 1]
+
+tree <- methods::new("treedata", phylo = tdat[[1]], data = as_tibble(tdat[[2]]))
+tip.idx <- match(tree@phylo$tip.label, df.meta$accver)
+tree@phylo <- groupOTU(
+  tree@phylo,
+  split(tree@phylo$tip.label, df.meta[tip.idx, ]$organism),
+  "organism"
+)
+ggtree(tree, mrsd = min(df.meta[tip.idx, ]$date), size = 2) +
+  aes(color = organism) +
+  geom_nodelab(color = "black", size = 6) +
+  geom_tiplab(linesize = 1, align = T, color = "black") +
+  geom_range("height_0.95_HPD", alpha = 0.5, size = 4) +
+  scale_colour_brewer(palette = "Set1") +
+  theme_tree2() +
+  theme(
+    legend.position = "bottom",
+    panel.grid.major.x = element_line(color="black", size = .25),
+    panel.grid.minor.x = element_line(color="grey", size = .25)
+  )
+```
+

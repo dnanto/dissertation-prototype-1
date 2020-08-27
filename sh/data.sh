@@ -10,7 +10,7 @@ cp -r ~/Documents/OneDrive\ -\ George\ Mason\ University/dissertation/data .
 mkdir -p data/blast
 
 python -m ffbio.ffidx data/genbank/10508.db -dump -fo gb | \
-  python -m ffbio.ffqual - -qual organism collection_date country | \
+  python -m ffbio.ffqual - organism collection_date country | \
   ndate.R - $'\t' date %Y-%m-%d collection_date dbY Ymd bY Y | \
   ngeon.R - $'\t' country "[:,]" > \
   data/genbank/10508.tsv
@@ -20,7 +20,7 @@ python -m ffbio.ffidx data/genbank/10508.db -dump -fo gb | \
 mkdir -p data/blast
 
 python -m ffbio.ffidx data/genbank/10508.db -dump -fo gb | \
-  python -m ffbio.ffqual - -qual db_xref | \
+  python -m ffbio.ffqual - db_xref | \
   awk -F '\t' 'NR > 1 { match($2, /taxon:([0-9]+)/, arr); print $1, arr[1] ? arr[1] : 0; }' > \
   data/blast/10508.ssv
 

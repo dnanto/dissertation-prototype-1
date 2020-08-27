@@ -1,24 +1,34 @@
 ---
-title: "bdat"
+title: "bac"
 output: html_document
 params:
+  out: "/Users/dnanto/GitHub/dissertation/out/FJ643676.1"
   mod: "poisson,strictgamma,relaxedgamma,mixedgamma"
-  itb: 1000
+  rep: 3
+  itr: 100000
+  cpu: !r parallel::detectCores()
 ---
 
 ```{r setup, include=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(lubridate)
+  library(BactDating)
+})
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
 phy.gub <- loadGubbins(file.path(params$out, "gub"))
-tip.date <- decimal_date(ymd(df.meta[match(phy.gub$tip.label, df.meta$saccver), ]$date))
-models <- strsplit(params$mod, ",")[[1]]
+tip.date <- decimal_date(ymd(str_split_fixed(phy.gub$tip.label, "_", 2)[, 2]))
+models <- rep(strsplit(params$mod, ",")[[1]], 3)
 runs <- setNames(parallel::mclapply(
-  models, 
+  models,
   function(model) {
-    bactdate(phy.gub, tip.date, model = model, nbIts = params$itb, useRec = T, thin = 1)
-  }, 
+    bactdate(phy.gub, tip.date, model = model, nbIts = params$itr, useRec = T, thin = 1)
+  },
   mc.cores = min(params$cpu, length(models))
 ), models)
+qs::qsave(runs, file.path(params$out, "bact.qs"), nthreads = params$cpu)
 ```
+
