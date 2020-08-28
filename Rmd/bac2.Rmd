@@ -1,9 +1,11 @@
 ---
 title: "bac2"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
 output: html_document
 params:
-  out: "/Users/dnanto/GitHub/dissertation/out/FJ643676.1"
+  out: "/Users/dnanto/GitHub/dissertation/out/AY594253.1/AAT97450.1"
   tsv: "/Users/dnanto/GitHub/dissertation/data/genbank/10508.tsv"
+  xls: "/Users/dnanto/GitHub/dissertation/data/meta/HAdV.xlsx"
   cpu: !r parallel::detectCores()
 ---
 
@@ -13,6 +15,10 @@ suppressPackageStartupMessages({
   library(ggtree)
 })
 knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+enframe(unlist(params), "key", "val")
 ```
 
 ```{r}
@@ -28,34 +34,34 @@ plot(run, "trace")
 ```
 
 ```{r}
-coda::effectiveSize(as.mcmc.resBactDating(run, burnin = params$brn))
+coda::effectiveSize(BactDating::as.mcmc.resBactDating(run, burnin = params$brn))
 ```
 
-```{r, fig.width=10, fig.height=10}
+```{r}
 df.meta <- read_tsv(params$tsv, col_types = cols(date = "D", .default = "c"), na = "?")
+df.type <- openxlsx::read.xlsx(params$xls, sheet = "type")
 
 tdat <- BactDating::as.treedata.resBactDating(run)
-tip.data <- str_split_fixed(tdat[[1]]$tip.label, "_", 2)
-tdat[[1]]$tip.label <- tip.data[, 1]
+tdat[[1]]$tip.label <- str_remove(tdat[[1]]$tip.label, "_\\d{4}-\\d{2}-\\d{2}$")
+tree <- methods::new("treedata", phylo = tdat[[1]], data = tibble::as_tibble(tdat[[2]]))
+tip.idx <- match(tree@phylo$tip.label, df.type$accver)
+tip.type <- with(df.type[tip.idx, ], paste(species, type, sep = "-"))
+tip.date <- df.meta[match(tree@phylo$tip.label, df.meta$accver), ]$date
 
-tree <- methods::new("treedata", phylo = tdat[[1]], data = as_tibble(tdat[[2]]))
-tip.idx <- match(tree@phylo$tip.label, df.meta$accver)
-tree@phylo <- groupOTU(
-  tree@phylo,
-  split(tree@phylo$tip.label, df.meta[tip.idx, ]$organism),
-  "organism"
-)
-ggtree(tree, mrsd = min(df.meta[tip.idx, ]$date), size = 2) +
-  aes(color = organism) +
+tree@phylo <- groupOTU(tree@phylo, split(tree@phylo$tip.label, tip.type), "type")
+```
+
+```{r, fig.width=10, fig.height=20}
+ggtree(tree, mrsd = min(tip.date), size = 2) +
+  aes(color = type) +
   geom_nodelab(color = "black", size = 6) +
   geom_tiplab(linesize = 1, align = T, color = "black") +
   geom_range("height_0.95_HPD", alpha = 0.5, size = 4) +
-  scale_colour_brewer(palette = "Set1") +
   theme_tree2() +
   theme(
     legend.position = "bottom",
     panel.grid.major.x = element_line(color="black", size = .25),
     panel.grid.minor.x = element_line(color="grey", size = .25)
   )
+ggsave(file.path(params$out, "bact.pdf"))
 ```
-

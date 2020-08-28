@@ -1,10 +1,10 @@
 ---
 title: "mep"
-date: !r format(Sys.time(), "%B %d, %Y")
+date: "`r format(Sys.time(), '%B %d, %Y')`"
 output: html_document
 params:
-  acc: "FJ643676.1"
-  pid: ""
+  acc: "AY594253.1"
+  pid: "AAT97450.1"
   fdb: "/Users/dnanto/GitHub/dissertation/data/genbank/10508.db"
   bdb: "/Users/dnanto/GitHub/dissertation/data/blast/10508"
   tsv: "/Users/dnanto/GitHub/dissertation/data/genbank/10508.tsv"
@@ -45,7 +45,7 @@ blastn \
   -task megablast \
   -db "$bdb" \
   -query ref.fna \
-  -outfmt "7 std qlen sstrand" \
+  -outfmt "7 std qlen sstrand staxid stitle" \
   -num_threads "$cpu" \
   -subject_besthit > \
   hits.tsv
@@ -57,7 +57,8 @@ df.meta <- read_tsv(params$tsv, col_types = cols(date = "D", .default = "c"), na
 # process hits
 col_names <- c(
   "qaccver", "saccver", "pident", "length", "mismatch", "gapopen",
-  "qstart", "qend", "sstart", "send", "evalue", "bitscore", "qlen", "sstrand"
+  "qstart", "qend", "sstart", "send", "evalue", "bitscore", 
+  "qlen", "sstrand", "staxid", "stitle"
 )
 col_types <- cols(
   length = "i", mismatch = "i", gapopen = "i", sstart = "i", send = "i", qlen = "i",
@@ -79,6 +80,8 @@ read_tsv(
     start = min(sstart, send),
     end = max(sstart, send),
     strand = first(sstrand),
+    staxid = first(staxid),
+    stitle = first(stitle),
     date = first(date),
     .groups = "drop"
   ) %>%
