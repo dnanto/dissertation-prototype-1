@@ -3,10 +3,10 @@ title: "bac"
 date: "`r format(Sys.time(), '%B %d, %Y')`"
 output: html_document
 params:
-  out: "/Users/dnanto/GitHub/dissertation/out/AY594253.1/AAT97450.1"
-  mod: "poisson,strictgamma,relaxedgamma,mixedgamma"
-  rep: 3
-  itr: 250000
+  out: "/Users/dnanto/GitHub/dissertation/out"
+  tsv: "/Users/dnanto/GitHub/dissertation/data/genbank/10508.tsv"
+  xls: "/Users/dnanto/GitHub/dissertation/data/meta/HAdV.xlsx"
+  bin: 0.10
   cpu: !r parallel::detectCores()
 ---
 
@@ -15,24 +15,76 @@ suppressPackageStartupMessages({
   library(tidyverse)
   library(lubridate)
   library(BactDating)
+  library(ape)
+  library(ggtree)
 })
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-enframe(unlist(params), "key", "val")
+df.meta <- read_tsv(params$tsv, col_types = cols(date = "D", .default = "c"), na = "?")
+df.type <- openxlsx::read.xlsx(params$xls, sheet = "type")
 ```
 
 ```{r}
-phy.gub <- loadGubbins(file.path(params$out, "gub"))
-tip.date <- decimal_date(ymd(str_extract(phy.gub$tip.label, "(\\d{4}-\\d{2}-\\d{2})$")))
-models <- rep(strsplit(params$mod, ",")[[1]], 3)
-runs <- setNames(parallel::mclapply(
-  models,
-  function(model) {
-    bactdate(phy.gub, tip.date, model = model, nbIts = params$itr, useRec = T, thin = 1)
-  },
-  mc.cores = min(params$cpu, length(models))
-), models)
-qs::qsave(runs, file.path(params$out, "bact.qs"), nthreads = params$cpu)
+acc <- "FJ643676.1"
 ```
+
+```{r}
+models <-
+  list.files(file.path(params$out, acc), "\\.qs$", full.names = T) %>%
+  parallel::mclapply(function(path) {
+    res <- qs::qread(path)
+    keys <- c("likelihood", "prior", "mu", "sigma", "alpha", "root")
+    logs <- as.data.frame(res$record[, keys])
+    burn <- max(1, round(nrow(logs) * params$bin))
+    mcmc <- coda::as.mcmc(res$record[burn:nrow(logs), keys])
+    c(
+      path = path,
+      model = res$model,
+      dic = res$dic,
+      ess = coda::effectiveSize(mcmc),
+      est = apply(res$record[, head(keys, -1)], 2, function(val) {
+        val <- sort(val)
+        vals <- c(mean(val), val[pmax(1, floor(length(val) * c(0.025, 0.975)))])
+        sprintf("%.2f [%.2f;%.2f]", vals[1], vals[2], vals[3])
+      }),
+      est.root = with(
+        res,
+        sprintf("%.2f [%.2f;%.2f]", tree$root.time, CI[Ntip(tree) + 1, 1], CI[Ntip(tree) + 1, 2])
+      )
+    )
+  }, mc.cores = params$cpu) %>%
+  bind_rows()
+```
+
+```{r}
+select(models, path, model, dic, starts_with("ess")) %>%
+  mutate(path = str_match(path, "(\\d+)\\.qs$")[, 2]) %>%
+  rename(itr = path) %>%
+  arrange(dic)
+```
+
+```{r}
+select(models, path, model, dic, starts_with("est")) %>%
+  mutate(path = str_match(path, "(\\d+)\\.qs$")[, 2]) %>%
+  rename(itr = path) %>%
+  arrange(dic)
+```
+
+```{r}
+res <- slice_min(models, dic) %>% pull(path) %>% qs::qread(nthreads = params$cpu)
+```
+
+```{r, fig.width=10, fig.height=4}
+res$inputtree$tip.date <- decimal_date(
+  ymd(str_match(res$inputtree$tip.label, "(\\d{4}-\\d{2}-\\d{2})$")[, 2])
+)
+invisible(roottotip(res$inputtree, res$inputtree$tip.date))
+plot(res, "scatter")
+```
+
+```{r, fig.width=10, fig.height=2}
+plot(res, "trace")
+```
+

@@ -10,7 +10,7 @@ pre <- file.path(dirname(path), str_split_fixed(basename(path), "\\.", 2)[, 1])
 
 gub <- loadGubbins(pre)
 
-tip.date <- decimal_date(ymd(str_extract(gub$tip.label, "(\\d{4}-\\d{2}-\\d{2})$")))
+tip.date <- decimal_date(ymd(str_match(gub$tip.label, "(\\d{4}-\\d{2}-\\d{2})$")[, 2]))
 
 res <- with(
   snakemake@params,
