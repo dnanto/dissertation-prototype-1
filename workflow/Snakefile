@@ -1,0 +1,179 @@
+from pathlib import Path
+from os import makedirs
+
+from Bio import SeqIO
+
+from snakemake.io import expand
+from snakemake.utils import validate
+
+
+## config ##
+
+validate(config, "conf/schema.yml")
+
+## variables ##
+
+root = Path(config["out"]) / (config["pid"] or config["acc"])
+makedirs(root, exist_ok = True)
+
+## rules ##
+
+rule all:
+    input:
+        expand(root / "bac.{mod}.{rep}.qs", mod=config["mod"], rep=range(1, config["rep"] + 1))
+
+rule ffref:
+    message:
+        """
+        Retrieve the accession from the flat-file database, saving it as a FASTA and GenBank file.
+        """
+    input:
+        fdb = config["fdb"]
+    output:
+        ffa = root / "ref.fa",
+        ffg = root / "ref.gb"
+    params:
+        acc = config["acc"],
+        pid = config["pid"]
+    run:
+        rec = SeqIO.index_db(input["fdb"])
+        rec = rec[params["acc"]]
+        if params["pid"]:
+            feature = next(
+                ele
+                for ele in rec.features
+                if ele.type == "CDS" and ele.qualifiers["protein_id"][0] == params["pid"]
+            )
+            rec = feature.extract(rec)
+            rec.id = params["pid"]
+            product = feature.qualifiers.get("product", ["n/a"])[0]
+            rec.description = f"{rec.id}|{feature.location} {product}"
+        SeqIO.write(rec, output.ffa, "fasta")
+        SeqIO.write(rec, output.ffg, "genbank")
+
+rule blast:
+    message:
+        """
+        Run BLAST+, optimizing for highly similar sequences.
+        """
+    input:
+        qry = rules.ffref.output.ffa
+    output:
+        hit = root / "hits.tsv"
+    params:
+        bdb = config["bdb"]
+    threads:
+        16
+    shell:
+        """
+        blastn \
+            -task megablast \
+            -db {params.bdb:q} \
+            -query {input.qry:q} \
+            -outfmt "7 std qlen sstrand staxid stitle" \
+            -num_threads {threads} \
+            -subject_besthit \
+            -out {output.hit:q}
+        """
+
+rule mevopop:
+    message:
+        """
+        Generate the measurably evolving population data set.
+        """
+    input:
+        hit = rules.blast.output.hit,
+        tsv = config["tsv"]
+    params:
+        thr = config["thr"]
+    output:
+        tsv = root / "meta.tsv",
+        ssv = root / "ebat.ssv",
+        sed = root / "date.sed"
+    script:
+        "./scripts/mep.R"
+
+rule extalign:
+    message:
+        """
+        Extract and align the sequence.
+        """
+    input:
+        ebat = rules.mevopop.output.ssv,
+        date = rules.mevopop.output.sed
+    output:
+        msa = root / "msa.fa",
+        log = root / "msa.log"
+    params:
+        bdb = config["bdb"]
+    threads:
+        16
+    shell:
+        """
+        blastdbcmd -db {params.bdb:q} -entry_batch {input.ebat:q} | \
+            sed -e "s/:.*//" -E -f {input.date:q} | \
+            mafft --auto --thread {threads} - 2> {output.log:q} | \
+            # convert ambiguous bases and non-gap characters to N
+            sed "/^[^>]/ s/[^ACGTNacgtn]/n/g" > {output.msa:q}
+        """
+
+rule gubbins:
+    message:
+        """
+        Infer maximum-likelihood tree and recombination events.
+        """
+    input:
+        msa = rules.extalign.output.msa
+    output:
+        log = root / "gub.log"
+    params:
+        pre = root / "gub",
+        itr = config["itr"],
+        gap = config["gap"]
+    threads:
+        16
+    shell:
+        """
+        run_gubbins.py {input.msa:q} \
+            -i {params.itr:q} -f {params.gap:q} -p {params.pre:q} -c {threads} > {output.log:q}
+        """
+
+rule iqtree:
+    message:
+        """
+        Infer maximum-likelihood tree and model of sequence evolution.
+        """
+    input:
+        msa = rules.extalign.output.msa
+    output:
+        log = root / "iqt.log"
+    params:
+        pre = root / "iqt"
+    threads:
+        16
+    shell:
+        """
+        iqtree -s {input.msa:q} -pre {params.pre:q} -m TESTONLY -nt {threads} >/dev/null 2>&1
+        """
+
+rule chrono:
+    message:
+        """
+        Infer chronogram from Gubbins output.
+            - model {params.mod}
+            - iteration {params.itr} / {params.rep}.
+        """
+    input:
+        log = rules.gubbins.output.log
+    output:
+        out = root / "bac.{mod}.{rep}.qs"
+    params:
+        mod = lambda wildcards, output: Path(output[0]).name.split(".")[1],
+        itr = lambda wildcards, output: Path(output[0]).name.split(".")[2],
+        rep = config["rep"],
+        nbi = config["nbi"],
+        thn = config["thn"]
+    threads:
+        1
+    script:
+        "./scripts/bac.R"
