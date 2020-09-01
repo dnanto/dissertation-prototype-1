@@ -3,7 +3,7 @@ title: "bac"
 date: "`r format(Sys.time(), '%B %d, %Y')`"
 output: html_document
 params:
-  out: "/Users/dnanto/GitHub/dissertation/out"
+  out: "/Users/dnanto/GitHub/dissertation/out/ACU57015.1"
   tsv: "/Users/dnanto/GitHub/dissertation/data/genbank/10508.tsv"
   xls: "/Users/dnanto/GitHub/dissertation/data/meta/HAdV.xlsx"
   bin: 0.10
@@ -27,12 +27,8 @@ df.type <- openxlsx::read.xlsx(params$xls, sheet = "type")
 ```
 
 ```{r}
-acc <- "FJ643676.1"
-```
-
-```{r}
 models <-
-  list.files(file.path(params$out, acc), "\\.qs$", full.names = T) %>%
+  list.files(params$out, "\\.qs$", full.names = T) %>%
   parallel::mclapply(function(path) {
     res <- qs::qread(path)
     keys <- c("likelihood", "prior", "mu", "sigma", "alpha", "root")
@@ -86,5 +82,76 @@ plot(res, "scatter")
 
 ```{r, fig.width=10, fig.height=2}
 plot(res, "trace")
+```
+
+```{r}
+tdat <- as.treedata.resBactDating(res)
+mrsd <- min(str_match(tdat[[1]]$tip.label, "(\\d{4}-\\d{2}-\\d{2})$")[, 2])
+tdat[[1]]$tip.label <- str_remove(tdat[[1]]$tip.label, "_\\d{4}-\\d{2}-\\d{2}$")
+
+tree <- methods::new("treedata", phylo = tdat[[1]], data = tibble::as_tibble(tdat[[2]]))
+type <- with(
+  df.type[match(tree@phylo$tip.label, df.type$accver), ],
+  paste(species, type, sep = "-")
+)
+
+tree@phylo <- groupOTU(tree@phylo, split(tree@phylo$tip.label, type), "type")
+
+ggtree(tree, mrsd = mrsd, size = 1) +
+  aes(color = type) +
+  # geom_nodelab(color = "black", size = 6) +
+  # geom_tiplab(linesize = 1, align = T, color = "black") +
+  geom_range("height_0.95_HPD", alpha = 0.5, size = 4) +
+  theme_tree2() +
+  theme(
+    legend.position = "bottom",
+    panel.grid.major.x = element_line(color = "black", size = .25),
+    panel.grid.minor.x = element_line(color = "grey", size = .25)
+  ) ->
+  p.bac
+```
+
+```{r}
+ape::read.gff(file.path(params$out, "gub.recombination_predictions.gff")) %>%
+  select(start, end, attributes) %>%
+  apply(1, function(row) {
+    attr <- str_split_fixed(Filter(nchar, str_split(row[["attributes"]], ";")[[1]]), "=", 2)
+    attr[, 2] <- substr(attr[, 2], 2, nchar(attr[, 2]) - 1)
+    attr <- setNames(attr[, 2], attr[, 1])
+    taxa <- Filter(nchar, str_split(attr[["taxa"]], " ")[[1]])
+    data.frame(
+      taxa, t(row[c("start", "end")]), t(attr[setdiff(names(attr), "taxa")]), 
+      stringsAsFactors = F
+    )
+  }) %>%
+  bind_rows() %>%
+  mutate_at("neg_log_likelihood", as.numeric) %>%
+  mutate_at(c("start", "end", "snp_count"), as.integer) %>%
+  mutate(date = str_match(taxa, "(\\d{4}-\\d{2}-\\d{2})$")[, 2]) %>%
+  mutate(taxa = factor(
+    str_remove(taxa, "_\\d{4}-\\d{2}-\\d{2}$"), 
+    levels = rev(get_taxa_name(p.bac))
+  )) %>%
+  add_count(start, end) %>%
+  mutate(unique = n == 1) ->
+  gff
+
+ggplot() +
+  geom_rect(
+    data = gff,
+    aes(
+      xmin = start, ymin = as.numeric(taxa) - 0.5, xmax = end, ymax = as.numeric(taxa) + 0.5,
+      fill = unique, alpha = snp_count
+    )
+  ) +
+  scale_alpha_continuous() + 
+  scale_y_discrete(limits = levels(gff$taxa)) +
+  theme_minimal() +
+  theme(legend.position = "bottom") ->
+  p.gff
+```
+
+```{r, fig.width=10, fig.height=10}
+cowplot::plot_grid(p.bac, p.gff, ncol = 2, align = "h")
 ```
 
