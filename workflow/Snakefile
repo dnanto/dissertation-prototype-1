@@ -9,7 +9,7 @@ from snakemake.utils import validate
 
 ## config ##
 
-validate(config, "conf/schema.yml")
+validate(config, "schemas/schema.yml")
 
 ## variables ##
 
