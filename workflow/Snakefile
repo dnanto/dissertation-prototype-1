@@ -7,13 +7,15 @@ from snakemake.io import expand
 from snakemake.utils import validate
 
 
-## config ##
+## configuration ##
 
-validate(config, "schemas/schema.yml")
+validate(config, "schemas/config.yml")
 
 ## variables ##
 
 root = Path(config["out"]) / (config["pid"] or config["acc"])
+
+## initialize ##
 makedirs(root, exist_ok = True)
 
 ## rules ##
@@ -91,7 +93,7 @@ rule mevopop:
         ssv = root / "ebat.ssv",
         sed = root / "date.sed"
     script:
-        "./scripts/mep.R"
+        "scripts/mep.R"
 
 rule extalign:
     message:
@@ -176,4 +178,4 @@ rule chrono:
     threads:
         1
     script:
-        "./scripts/bac.R"
+        "scripts/bac.R"

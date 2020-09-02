@@ -3,7 +3,7 @@ title: "bac"
 date: "`r format(Sys.time(), '%B %d, %Y')`"
 output: html_document
 params:
-  out: "/Users/dnanto/GitHub/dissertation/out/ACU57015.1"
+  out: "/Users/dnanto/GitHub/dissertation/out/FJ643676.1"
   tsv: "/Users/dnanto/GitHub/dissertation/data/genbank/10508.tsv"
   xls: "/Users/dnanto/GitHub/dissertation/data/meta/HAdV.xlsx"
   bin: 0.10
@@ -42,7 +42,7 @@ models <-
       ess = coda::effectiveSize(mcmc),
       est = apply(res$record[, head(keys, -1)], 2, function(val) {
         val <- sort(val)
-        vals <- c(mean(val), val[pmax(1, floor(length(val) * c(0.025, 0.975)))])
+        vals <- c(median(val), val[pmax(1, floor(length(val) * c(0.025, 0.975)))])
         sprintf("%.2f [%.2f;%.2f]", vals[1], vals[2], vals[3])
       }),
       est.root = with(
@@ -51,7 +51,8 @@ models <-
       )
     )
   }, mc.cores = params$cpu) %>%
-  bind_rows()
+  bind_rows() %>%
+  mutate(dic = as.numeric(dic))
 ```
 
 ```{r}
@@ -152,6 +153,6 @@ ggplot() +
 ```
 
 ```{r, fig.width=10, fig.height=10}
-cowplot::plot_grid(p.bac, p.gff, ncol = 2, align = "h")
+cowplot::plot_grid(p.bac, p.gff, ncol = 2, align = "h", rel_widths = c(2, 1))
 ```
 
