@@ -1,8 +1,6 @@
 from pathlib import Path
 from os import makedirs
 
-from Bio import SeqIO
-
 from snakemake.io import expand
 from snakemake.utils import validate
 
@@ -14,6 +12,7 @@ validate(config, "schemas/config.yml")
 ## variables ##
 
 root = Path(config["out"]) / (config["pid"] or config["acc"])
+logs = Path("logs")
 
 ## initialize ##
 makedirs(root, exist_ok = True)
@@ -22,48 +21,48 @@ makedirs(root, exist_ok = True)
 
 rule all:
     input:
-        expand(root / "bac.{mod}.{rep}.qs", mod=config["mod"], rep=range(1, config["rep"] + 1))
+        expand(
+            root / "bactdate" / "{mod}-{rep}.qs", mod=config["mod"],
+            rep=range(1, config["rep"] + 1)
+        )
 
 rule ffref:
     message:
         """
-        Retrieve the accession from the flat-file database, saving it as a FASTA and GenBank file.
+        Retrieve {params.acc} {params.pid} from {input.fdb:q}, generating a FASTA/GenBank file.
         """
     input:
         fdb = config["fdb"]
     output:
-        ffa = root / "ref.fa",
-        ffg = root / "ref.gb"
+        ffa = root / "ffref" / "ref.fasta",
+        ffg = root / "ffref" / "ref.gb"
+    log:
+        logs / "ffref.log"
     params:
         acc = config["acc"],
         pid = config["pid"]
-    run:
-        rec = SeqIO.index_db(input["fdb"])
-        rec = rec[params["acc"]]
-        if params["pid"]:
-            feature = next(
-                ele
-                for ele in rec.features
-                if ele.type == "CDS" and ele.qualifiers["protein_id"][0] == params["pid"]
-            )
-            rec = feature.extract(rec)
-            rec.id = params["pid"]
-            product = feature.qualifiers.get("product", ["n/a"])[0]
-            rec.description = f"{rec.id}|{feature.location} {product}"
-        SeqIO.write(rec, output.ffa, "fasta")
-        SeqIO.write(rec, output.ffg, "genbank")
+    threads:
+        1
+    conda:
+        "envs/py.yml"
+    script:
+        "scripts/ffref.py"
 
 rule blast:
     message:
         """
-        Run BLAST+, optimizing for highly similar sequences.
+        Run BLAST+, optimizing for highly similar sequences, querying {params.bdb:q}.
         """
     input:
         qry = rules.ffref.output.ffa
     output:
-        hit = root / "hits.tsv"
+        hit = root / "blast" / "hits.tsv"
+    log:
+        logs / "blast.log"
     params:
         bdb = config["bdb"]
+    conda:
+        "envs/blast.yml"
     threads:
         16
     shell:
@@ -78,45 +77,74 @@ rule blast:
             -out {output.hit:q}
         """
 
-rule mevopop:
+rule popmeta:
     message:
         """
-        Generate the measurably evolving population data set.
+        Generate the measurably evolving population metadata set, filter qpidcov >= {params.thr}.
         """
     input:
         hit = rules.blast.output.hit,
         tsv = config["tsv"]
+    log:
+        logs / "popmeta.log"
     params:
         thr = config["thr"]
     output:
-        tsv = root / "meta.tsv",
-        ssv = root / "ebat.ssv",
-        sed = root / "date.sed"
+        tsv = root / "popmeta" / "meta.tsv",
+        ssv = root / "popmeta" / "ebat.ssv",
+        sed = root / "popmeta" / "date.sed"
+    conda:
+        "envs/R.yml"
     script:
-        "scripts/mep.R"
+        "scripts/popmeta.R"
 
-rule extalign:
+rule extract:
     message:
         """
-        Extract and align the sequence.
+        Extract sequences from {params.bdb:q}.
         """
     input:
-        ebat = rules.mevopop.output.ssv,
-        date = rules.mevopop.output.sed
+        ebat = rules.popmeta.output.ssv,
+        date = rules.popmeta.output.sed
     output:
-        msa = root / "msa.fa",
-        log = root / "msa.log"
+        fas = root / "extract" / "seq.fasta"
+    log:
+        logs / "exract.log"
+    params:
+        bdb = config["bdb"]
+    threads:
+        1
+    conda:
+        "envs/blast.yml"
+    shell:
+        """
+        blastdbcmd -db {params.bdb:q} -entry_batch {input.ebat:q} | \
+            sed -e "s/:.*//" -E -f {input.date:q} > {output.fas:q}
+        """
+
+rule mafft:
+    message:
+        """
+        Align the sequences.
+        """
+    input:
+        fas = rules.extract.output.fas
+    output:
+        msa = root / "mafft" / "msa.fasta",
+        log = root / "mafft" / "msa.log"
+    log:
+        logs / "mafft.log"
     params:
         bdb = config["bdb"]
     threads:
         16
+    conda:
+        "envs/mafft.yml"
     shell:
         """
-        blastdbcmd -db {params.bdb:q} -entry_batch {input.ebat:q} | \
-            sed -e "s/:.*//" -E -f {input.date:q} | \
-            mafft --auto --thread {threads} - 2> {output.log:q} | \
+        mafft --auto --thread {threads} {input.fas:q} 2> {output.log:q} | \
             # convert ambiguous bases and non-gap characters to N
-            sed "/^[^>]/ s/[^ACGTNacgtn]/n/g" > {output.msa:q}
+            sed "#^[^>]# s#[^ACGTNacgtn]#n#g" > {output.msa:q}
         """
 
 rule gubbins:
@@ -125,15 +153,19 @@ rule gubbins:
         Infer maximum-likelihood tree and recombination events.
         """
     input:
-        msa = rules.extalign.output.msa
+        msa = rules.mafft.output.msa
     output:
-        log = root / "gub.log"
+        log = root / "gubbins" / "gub.log"
+    log:
+        logs / "gubbins.log"
     params:
-        pre = root / "gub",
+        pre = root / "gubbins" / "gub",
         itr = config["itr"],
         gap = config["gap"]
     threads:
         16
+    conda:
+        "envs/gubbins.yml"
     shell:
         """
         run_gubbins.py {input.msa:q} \
@@ -146,36 +178,59 @@ rule iqtree:
         Infer maximum-likelihood tree and model of sequence evolution.
         """
     input:
-        msa = rules.extalign.output.msa
+        msa = rules.mafft.output.msa
     output:
-        log = root / "iqt.log"
+        log = root / "iqtree" / "iqt.log"
+    log:
+        logs / "iqtree.log"
     params:
-        pre = root / "iqt"
+        pre = root / "iqtree" / "iqt"
     threads:
         16
+    conda:
+        "envs/iqtree.yml"
     shell:
         """
-        iqtree -s {input.msa:q} -pre {params.pre:q} -m TESTONLY -nt {threads} >/dev/null 2>&1
+        iqtree -s {input.msa:q} -pre "{params.pre}" -m TESTONLY -nt {threads} >/dev/null 2>&1
         """
 
-rule chrono:
+rule bactdatepkg:
     message:
         """
-        Infer chronogram from Gubbins output.
-            - model {params.mod}
-            - iteration {params.itr} / {params.rep}.
+        Install BactDating.
+        """
+    output:
+        ver = root / "bactdatepkg" / "version.txt"
+    log:
+        logs / "bactdatepkg.log"
+    threads:
+        1
+    conda:
+        "envs/R.yml"
+    script:
+        "scripts/bactdatepkg.R"
+
+rule bactdate:
+    message:
+        """
+        Infer chronogram from Gubbins output using BactDating: {params.mod}-{params.itr}/{params.rep}.
         """
     input:
-        log = rules.gubbins.output.log
+        log = rules.gubbins.output.log,
+        ver = rules.bactdatepkg.output.ver
     output:
-        out = root / "bac.{mod}.{rep}.qs"
+        out = root / "bactdate" / "{mod}-{rep}.qs"
+    log:
+        logs / "bactdate" / "{mod}-{rep}.qs"
     params:
-        mod = lambda wildcards, output: Path(output[0]).name.split(".")[1],
-        itr = lambda wildcards, output: Path(output[0]).name.split(".")[2],
+        mod = lambda wildcards, output: Path(output[0]).stem.split("-")[0],
+        itr = lambda wildcards, output: Path(output[0]).stem.split("-")[1],
         rep = config["rep"],
         nbi = config["nbi"],
         thn = config["thn"]
     threads:
         1
+    conda:
+        "envs/R.yml"
     script:
-        "scripts/bac.R"
+        "scripts/bactdate.R"

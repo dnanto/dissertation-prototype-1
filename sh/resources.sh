@@ -2,7 +2,7 @@
 
 ## root directories
 
-root="data"
+root="resources"
 mkdir -p "$root"
 mkdir -p "$root/meta"
 mkdir -p "$root/genbank"

@@ -1,7 +1,9 @@
 .DS_Store
+.Rdata
 .Rhistory
 .Rproj.user
 .snakemake
-out
-data
+logs
+results
+resources
 dissertation.Rproj

@@ -17,7 +17,7 @@ properties:
   bdb:
     type: string
     description: the BLAST database name
-  
+
   # filter
   tsv:
     type: string
@@ -64,4 +64,4 @@ properties:
   out:
     type: string
     description: the ouput directory
-    default: out
+    default: results
