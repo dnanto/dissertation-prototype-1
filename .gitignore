@@ -3,6 +3,7 @@
 .Rhistory
 .Rproj.user
 .snakemake
+dag.pdf
 logs
 results
 resources

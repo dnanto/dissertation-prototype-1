@@ -37,20 +37,6 @@ rule all:
       rep=range(1, config["rep"] + 1)
     )
 
-rule rgithub:
-  message:
-    """
-    Install R packages from GitHub.
-    """
-  log:
-    logs / "rgithub.log"
-  threads:
-    1
-  conda:
-    "envs/R.yml"
-  script:
-    "scripts/rgithub.R"
-
 rule ffref:
   message:
     """

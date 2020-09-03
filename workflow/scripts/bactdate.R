@@ -2,7 +2,7 @@
 
 library(stringr, warn.conflicts = F, quietly = T, verbose = F)
 library(lubridate, warn.conflicts = F, quietly = T, verbose = F)
-library(BactDating)
+library(BactDating, warn.conflicts = F, quietly = T, verbose = F)
 
 
 path <- snakemake@input[["log"]]
