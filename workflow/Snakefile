@@ -74,7 +74,7 @@ rule blast:
   conda:
     "envs/blast.yml"
   threads:
-    32
+    config["threads"]
   shell:
     """
     blastn \
@@ -147,7 +147,7 @@ rule mafft:
   params:
     bdb = config["bdb"]
   threads:
-    32
+    config["threads"]
   conda:
     "envs/mafft.yml"
   shell:
@@ -173,7 +173,7 @@ rule gubbins:
     itr = config["itr"],
     gap = config["gap"]
   threads:
-    32
+    config["threads"]
   conda:
     "envs/gubbins.yml"
   shell:
@@ -196,7 +196,7 @@ rule iqtree:
   params:
     pre = root / "iqtree" / "iqt"
   threads:
-    32
+    config["threads"]
   conda:
     "envs/iqtree.yml"
   shell:
@@ -277,7 +277,7 @@ rule beast:
     coal = lambda wildcards, output: Path(output[0]).stem.split("-")[1],
     itr = lambda wildcards, output: Path(output[0]).stem.split("-")[2]
   threads:
-     32
+     config["threads"]
   conda:
      "envs/beast.yml"
   shell:

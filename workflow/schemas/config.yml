@@ -106,6 +106,12 @@ properties:
     description: the MCC limit
     default: 0.50
 
+  # threads
+  threads:
+    type: integer
+    description: the number of threads to use for heavy-duty tasks
+    default: 32
+
   # output
   out:
     type: string
