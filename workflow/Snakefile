@@ -256,16 +256,16 @@ rule beautify:
   log:
     out = logs / "beautify" / "{clock}-{coal}-{rep}.log"
   params:
-    clock = lambda wildcards, output: Path(output[0]).stem.split("-")[0],
-    coal = lambda wildcards, output: Path(output[0]).stem.split("-")[1],
-    itr = lambda wildcards, output: Path(output[0]).stem.split("-")[2],
-    stem = lambda wildcards, output: Path(output[0]).stem,
-    rep = config["rep"],
     mcmc_len = config["mcmc_len"],
     mcmc_echo = config["mcmc_echo"],
     mle_len = config["mle_len"],
     mle_echo = config["mle_echo"],
-    mle_steps = config["mle_steps"]
+    mle_steps = config["mle_steps"],
+    rep = config["rep"],
+    stem = lambda wildcards, output: Path(output[0]).stem,
+    clock = lambda wildcards, output: Path(output[0]).stem.split("-")[0],
+    coal = lambda wildcards, output: Path(output[0]).stem.split("-")[1],
+    itr = lambda wildcards, output: Path(output[0]).stem.split("-")[2]
   threads:
     1
   conda:
@@ -279,32 +279,34 @@ rule beast:
     Infer chronogram using BEAST: {params.clock}-{params.coal} {params.itr}/{params.rep}.
     """
   input:
-    xml = Path(rules.beautify.output.xml).absolute()
+    xml = root / "beautify" / "{clock}-{coal}-{rep}.xml"
   output:
     trees = root / "beast" / "{clock}-{coal}-{rep}.trees"
   log:
     logs.joinpath("beast").joinpath("{clock}-{coal}-{rep}.log").absolute()
   params:
+    root = root / "beast",
+    pwd = Path().absolute(),
+    rep = config["rep"],
     clock = lambda wildcards, output: Path(output[0]).stem.split("-")[0],
     coal = lambda wildcards, output: Path(output[0]).stem.split("-")[1],
-    itr = lambda wildcards, output: Path(output[0]).stem.split("-")[2],
-    rep = config["rep"],
-    root = root / "beast"
+    itr = lambda wildcards, output: Path(output[0]).stem.split("-")[2]
   threads:
      16
   conda:
      "envs/beast.yml"
   shell:
     """
-    mkdir -p {params.root:q} && \
-    cd {params.root:q} || exit && \
-    beast -overwrite -threads {threads} {input.xml:q} > {log:q}
+    mkdir -p {params.root:q}
+    cd {params.root:q} || exit
+    beast -overwrite -threads {threads} {params.pwd:q}/{input.xml:q} > {log:q}
     """
 
 rule treeannotator:
   message:
     """
-    Calculate the MCC tree w/ burn-in @ {params.burnin} & limit @ {params.limit}.
+    Calculate the MCC tree w/ burn-in @ {params.burnin} & limit @ {params.limit}:
+    {params.clock}-{params.coal} {params.itr}/{params.rep}.
     """
   input:
     trees = root / "beast" / "{clock}-{coal}-{rep}.trees"
@@ -314,7 +316,11 @@ rule treeannotator:
     mcc = root / "treeannotator" / "{clock}-{coal}-{rep}.log"
   params:
     burnin = max(1, int(round(config["burnin"] * config["mcmc_len"]))),
-    limit = config["limit"]
+    limit = config["limit"],
+    clock = lambda wildcards, output: Path(output[0]).stem.split("-")[0],
+    coal = lambda wildcards, output: Path(output[0]).stem.split("-")[1],
+    itr = lambda wildcards, output: Path(output[0]).stem.split("-")[2],
+    rep = config["rep"]
   conda:
      "envs/beast.yml"
   threads:
