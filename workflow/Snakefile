@@ -1,5 +1,4 @@
 from pathlib import Path
-from os import makedirs
 
 from snakemake.io import expand
 from snakemake.utils import validate
@@ -14,17 +13,44 @@ validate(config, "schemas/config.yml")
 root = Path(config["out"]) / (config["pid"] or config["acc"])
 logs = Path("logs")
 
-## initialize ##
-makedirs(root, exist_ok = True)
-
 ## rules ##
+
+localrules:
+    all,
+    rgithub,
+    ffref,
+    popmeta,
+    extract,
+    beautify
 
 rule all:
     input:
         expand(
-            root / "bactdate" / "{mod}-{rep}.qs", mod=config["mod"],
+            root / "bactdate" / "{mod}-{rep}.qs",
+            mod=config["mod"],
+            rep=range(1, config["rep"] + 1)
+        ),
+        expand(
+            root / "beautify" / "{clock}-{coal}-{rep}.xml",
+            clock=config["clock"],
+            coal=config["coal"],
             rep=range(1, config["rep"] + 1)
         )
+
+
+rule rgithub:
+    message:
+        """
+        Install R packages from GitHub.
+        """
+    log:
+        logs / "rgithub.log"
+    threads:
+        1
+    conda:
+        "envs/R.yml"
+    script:
+        "scripts/rgithub.R"
 
 rule ffref:
     message:
@@ -34,8 +60,8 @@ rule ffref:
     input:
         fdb = config["fdb"]
     output:
-        ffa = root / "ffref" / "ref.fasta",
-        ffg = root / "ffref" / "ref.gb"
+        fas = root / "ffref" / "ref.fasta",
+        gbk = root / "ffref" / "ref.gb"
     log:
         logs / "ffref.log"
     params:
@@ -54,9 +80,9 @@ rule blast:
         Run BLAST+, optimizing for highly similar sequences, querying {params.bdb:q}.
         """
     input:
-        qry = rules.ffref.output.ffa
+        qry = rules.ffref.output.fas
     output:
-        hit = root / "blast" / "hits.tsv"
+        tsv = root / "blast" / "hits.tsv"
     log:
         logs / "blast.log"
     params:
@@ -74,7 +100,7 @@ rule blast:
             -outfmt "7 std qlen sstrand staxid stitle" \
             -num_threads {threads} \
             -subject_besthit \
-            -out {output.hit:q}
+            -out {output.tsv:q}
         """
 
 rule popmeta:
@@ -83,7 +109,7 @@ rule popmeta:
         Generate the measurably evolving population metadata set, filter qpidcov >= {params.thr}.
         """
     input:
-        hit = rules.blast.output.hit,
+        hit = rules.blast.output.tsv,
         tsv = config["tsv"]
     log:
         logs / "popmeta.log"
@@ -104,8 +130,8 @@ rule extract:
         Extract sequences from {params.bdb:q}.
         """
     input:
-        ebat = rules.popmeta.output.ssv,
-        date = rules.popmeta.output.sed
+        ssv = rules.popmeta.output.ssv,
+        sed = rules.popmeta.output.sed
     output:
         fas = root / "extract" / "seq.fasta"
     log:
@@ -118,8 +144,8 @@ rule extract:
         "envs/blast.yml"
     shell:
         """
-        blastdbcmd -db {params.bdb:q} -entry_batch {input.ebat:q} | \
-            sed -e "s/:.*//" -E -f {input.date:q} > {output.fas:q}
+        blastdbcmd -db {params.bdb:q} -entry_batch {input.ssv:q} | \
+            sed -e "s/:.*//" -E -f {input.sed:q} > {output.fas:q}
         """
 
 rule mafft:
@@ -130,7 +156,7 @@ rule mafft:
     input:
         fas = rules.extract.output.fas
     output:
-        msa = root / "mafft" / "msa.fasta",
+        fas = root / "mafft" / "msa.fasta",
         log = root / "mafft" / "msa.log"
     log:
         logs / "mafft.log"
@@ -144,7 +170,7 @@ rule mafft:
         """
         mafft --auto --thread {threads} {input.fas:q} 2> {output.log:q} | \
             # convert ambiguous bases and non-gap characters to N
-            sed "#^[^>]# s#[^ACGTNacgtn]#n#g" > {output.msa:q}
+            sed "#^[^>]# s#[^ACGTNacgtn]#n#g" > {output.fas:q}
         """
 
 rule gubbins:
@@ -153,7 +179,7 @@ rule gubbins:
         Infer maximum-likelihood tree and recombination events.
         """
     input:
-        msa = rules.mafft.output.msa
+        msa = rules.mafft.output.fas
     output:
         log = root / "gubbins" / "gub.log"
     log:
@@ -178,7 +204,7 @@ rule iqtree:
         Infer maximum-likelihood tree and model of sequence evolution.
         """
     input:
-        msa = rules.mafft.output.msa
+        msa = rules.mafft.output.fas
     output:
         log = root / "iqtree" / "iqt.log"
     log:
@@ -194,34 +220,17 @@ rule iqtree:
         iqtree -s {input.msa:q} -pre "{params.pre}" -m TESTONLY -nt {threads} >/dev/null 2>&1
         """
 
-rule bactdatepkg:
-    message:
-        """
-        Install BactDating.
-        """
-    output:
-        ver = root / "bactdatepkg" / "version.txt"
-    log:
-        logs / "bactdatepkg.log"
-    threads:
-        1
-    conda:
-        "envs/R.yml"
-    script:
-        "scripts/bactdatepkg.R"
-
 rule bactdate:
     message:
         """
-        Infer chronogram from Gubbins output using BactDating: {params.mod}-{params.itr}/{params.rep}.
+        Infer chronogram from Gubbins output using BactDating: {params.mod} {params.itr}/{params.rep}.
         """
     input:
-        log = rules.gubbins.output.log,
-        ver = rules.bactdatepkg.output.ver
+        log = rules.gubbins.output.log
     output:
-        out = root / "bactdate" / "{mod}-{rep}.qs"
+        qs = root / "bactdate" / "{mod}-{rep}.qs"
     log:
-        logs / "bactdate" / "{mod}-{rep}.qs"
+        logs / "bactdate" / "{mod}-{rep}.log"
     params:
         mod = lambda wildcards, output: Path(output[0]).stem.split("-")[0],
         itr = lambda wildcards, output: Path(output[0]).stem.split("-")[1],
@@ -234,3 +243,33 @@ rule bactdate:
         "envs/R.yml"
     script:
         "scripts/bactdate.R"
+
+rule beautify:
+    message:
+        """
+        Generate BEAST XML input files: {params.clock}-{params.coal} {params.itr}/{params.rep}.
+        """
+    input:
+        fas = rules.mafft.output.fas,
+        log = rules.iqtree.output.log
+    output:
+        xml = root / "beautify" / "{clock}-{coal}-{rep}.xml"
+    log:
+        out = logs / "beautify" / "{clock}-{coal}-{rep}.log"
+    params:
+        clock = lambda wildcards, output: Path(output[0]).stem.split("-")[0],
+        coal = lambda wildcards, output: Path(output[0]).stem.split("-")[1],
+        itr = lambda wildcards, output: Path(output[0]).stem.split("-")[2],
+        stem = lambda wildcards, output: Path(output[0]).stem,
+        rep = config["rep"],
+        mcmc_len = config["mcmc_len"],
+        mcmc_echo = config["mcmc_echo"],
+        mle_len = config["mle_len"],
+        mle_echo = config["mle_echo"],
+        mle_steps = config["mle_steps"]
+    threads:
+        1
+    conda:
+        "envs/py.yml"
+    script:
+        "scripts/beautify/beautify.py"

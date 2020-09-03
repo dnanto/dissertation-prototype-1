@@ -3,6 +3,7 @@ $schema: "http://json-schema.org/draft-06/schema#"
 description: the parameters for the measurably-evolving population workflow
 
 properties:
+
   # ffbio
   acc:
     description: the accession of the query record
@@ -59,6 +60,50 @@ properties:
     type: integer
     description: the number of replicates per model
     default: 3
+
+  # beautify
+  clock:
+    type: array
+    description: the molecular clock model
+    default:
+      - rex
+      - rln
+      - str
+  coal:
+    type: array
+    description: the population coalescent model
+    default:
+      - con
+      - exp
+  mcmc_len:
+    type: integer
+    description: the chain length for MCMC
+    default: 10000000
+  mcmc_echo:
+    type: integer
+    description: the sampling frequency for MCMC
+    default: 10000
+  mle_len:
+    type: integer
+    description: the chain length for MLE
+    default: 1000000
+  mle_echo:
+    type: integer
+    description: the sampling frequency for MLE
+    default: 1000
+  mle_steps:
+    type: integer
+    description: the number of path steps for MLE
+    default: 100
+  
+  # treeannotator
+  treeannotator:
+    type: array
+    description: the treeannotator parameters (note - burnin is a percentage in [0, 1])
+    default:
+      - heights mean
+      - burnin 0.10
+      - limit 0.5
 
   # output
   out:

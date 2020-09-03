@@ -17,4 +17,4 @@ res <- with(
   bactdate(gub, tip.date, model = mod, nbIts = nbi, thin = thn, useRec = T)
 )
 
-qs::qsave(res, snakemake@output[["out"]][[1]])
+qs::qsave(res, snakemake@output[["qs"]][[1]])
