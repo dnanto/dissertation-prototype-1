@@ -78,23 +78,23 @@ properties:
   mcmc_len:
     type: integer
     description: the chain length for MCMC
-    default: 10000000
+    default: 10000
   mcmc_echo:
     type: integer
     description: the sampling frequency for MCMC
-    default: 10000
+    default: 10
   mle_len:
     type: integer
     description: the chain length for MLE
-    default: 1000000
+    default: 1000
   mle_echo:
     type: integer
     description: the sampling frequency for MLE
-    default: 1000
+    default: 10
   mle_steps:
     type: integer
     description: the number of path steps for MLE
-    default: 100
+    default: 10
   
   # treeannotator
   treeannotator:

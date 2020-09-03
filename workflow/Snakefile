@@ -16,260 +16,288 @@ logs = Path("logs")
 ## rules ##
 
 localrules:
-    all,
-    rgithub,
-    ffref,
-    popmeta,
-    extract,
-    beautify
+  all,
+  rgithub,
+  ffref,
+  popmeta,
+  extract,
+  beautify
 
 rule all:
-    input:
-        expand(
-            root / "bactdate" / "{mod}-{rep}.qs",
-            mod=config["mod"],
-            rep=range(1, config["rep"] + 1)
-        ),
-        expand(
-            root / "beautify" / "{clock}-{coal}-{rep}.xml",
-            clock=config["clock"],
-            coal=config["coal"],
-            rep=range(1, config["rep"] + 1)
-        )
+  input:
+    expand(
+      root / "bactdate" / "{mod}-{rep}.qs",
+      mod=config["mod"],
+      rep=range(1, config["rep"] + 1)
+    ),
+    expand(
+      root / "beast" / "{clock}-{coal}-{rep}.trees",
+      clock=config["clock"],
+      coal=config["coal"],
+      rep=range(1, config["rep"] + 1)
+    )
 
 
 rule rgithub:
-    message:
-        """
-        Install R packages from GitHub.
-        """
-    log:
-        logs / "rgithub.log"
-    threads:
-        1
-    conda:
-        "envs/R.yml"
-    script:
-        "scripts/rgithub.R"
+  message:
+    """
+    Install R packages from GitHub.
+    """
+  log:
+    logs / "rgithub.log"
+  threads:
+    1
+  conda:
+    "envs/R.yml"
+  script:
+    "scripts/rgithub.R"
 
 rule ffref:
-    message:
-        """
-        Retrieve {params.acc} {params.pid} from {input.fdb:q}, generating a FASTA/GenBank file.
-        """
-    input:
-        fdb = config["fdb"]
-    output:
-        fas = root / "ffref" / "ref.fasta",
-        gbk = root / "ffref" / "ref.gb"
-    log:
-        logs / "ffref.log"
-    params:
-        acc = config["acc"],
-        pid = config["pid"]
-    threads:
-        1
-    conda:
-        "envs/py.yml"
-    script:
-        "scripts/ffref.py"
+  message:
+    """
+    Retrieve {params.acc} {params.pid} from {input.fdb:q}, generating a FASTA/GenBank file.
+    """
+  input:
+    fdb = config["fdb"]
+  output:
+    fas = root / "ffref" / "ref.fasta",
+    gbk = root / "ffref" / "ref.gb"
+  log:
+    logs / "ffref.log"
+  params:
+    acc = config["acc"],
+    pid = config["pid"]
+  threads:
+    1
+  conda:
+    "envs/py.yml"
+  script:
+    "scripts/ffref.py"
 
 rule blast:
-    message:
-        """
-        Run BLAST+, optimizing for highly similar sequences, querying {params.bdb:q}.
-        """
-    input:
-        qry = rules.ffref.output.fas
-    output:
-        tsv = root / "blast" / "hits.tsv"
-    log:
-        logs / "blast.log"
-    params:
-        bdb = config["bdb"]
-    conda:
-        "envs/blast.yml"
-    threads:
-        16
-    shell:
-        """
-        blastn \
-            -task megablast \
-            -db {params.bdb:q} \
-            -query {input.qry:q} \
-            -outfmt "7 std qlen sstrand staxid stitle" \
-            -num_threads {threads} \
-            -subject_besthit \
-            -out {output.tsv:q}
-        """
+  message:
+    """
+    Run BLAST+, optimizing for highly similar sequences, querying {params.bdb:q}.
+    """
+  input:
+    qry = rules.ffref.output.fas
+  output:
+    tsv = root / "blast" / "hits.tsv"
+  log:
+    logs / "blast.log"
+  params:
+    bdb = config["bdb"]
+  conda:
+    "envs/blast.yml"
+  threads:
+    16
+  shell:
+    """
+    blastn \
+      -task megablast \
+      -db {params.bdb:q} \
+      -query {input.qry:q} \
+      -outfmt "7 std qlen sstrand staxid stitle" \
+      -num_threads {threads} \
+      -subject_besthit \
+      -out {output.tsv:q}
+    """
 
 rule popmeta:
-    message:
-        """
-        Generate the measurably evolving population metadata set, filter qpidcov >= {params.thr}.
-        """
-    input:
-        hit = rules.blast.output.tsv,
-        tsv = config["tsv"]
-    log:
-        logs / "popmeta.log"
-    params:
-        thr = config["thr"]
-    output:
-        tsv = root / "popmeta" / "meta.tsv",
-        ssv = root / "popmeta" / "ebat.ssv",
-        sed = root / "popmeta" / "date.sed"
-    conda:
-        "envs/R.yml"
-    script:
-        "scripts/popmeta.R"
+  message:
+    """
+    Generate the measurably evolving population metadata set, filter qpidcov >= {params.thr}.
+    """
+  input:
+    hit = rules.blast.output.tsv,
+    tsv = config["tsv"]
+  log:
+    logs / "popmeta.log"
+  params:
+    thr = config["thr"]
+  output:
+    tsv = root / "popmeta" / "meta.tsv",
+    ssv = root / "popmeta" / "ebat.ssv",
+    sed = root / "popmeta" / "date.sed"
+  conda:
+    "envs/R.yml"
+  script:
+    "scripts/popmeta.R"
 
 rule extract:
-    message:
-        """
-        Extract sequences from {params.bdb:q}.
-        """
-    input:
-        ssv = rules.popmeta.output.ssv,
-        sed = rules.popmeta.output.sed
-    output:
-        fas = root / "extract" / "seq.fasta"
-    log:
-        logs / "exract.log"
-    params:
-        bdb = config["bdb"]
-    threads:
-        1
-    conda:
-        "envs/blast.yml"
-    shell:
-        """
-        blastdbcmd -db {params.bdb:q} -entry_batch {input.ssv:q} | \
-            sed -e "s/:.*//" -E -f {input.sed:q} > {output.fas:q}
-        """
+  message:
+    """
+    Extract sequences from {params.bdb:q}.
+    """
+  input:
+    ssv = rules.popmeta.output.ssv,
+    sed = rules.popmeta.output.sed
+  output:
+    fas = root / "extract" / "seq.fasta"
+  log:
+    logs / "exract.log"
+  params:
+    bdb = config["bdb"]
+  threads:
+    1
+  conda:
+    "envs/blast.yml"
+  shell:
+    """
+    blastdbcmd -db {params.bdb:q} -entry_batch {input.ssv:q} | \
+      sed -e "s/:.*//" -E -f {input.sed:q} > {output.fas:q}
+    """
 
 rule mafft:
-    message:
-        """
-        Align the sequences.
-        """
-    input:
-        fas = rules.extract.output.fas
-    output:
-        fas = root / "mafft" / "msa.fasta",
-        log = root / "mafft" / "msa.log"
-    log:
-        logs / "mafft.log"
-    params:
-        bdb = config["bdb"]
-    threads:
-        16
-    conda:
-        "envs/mafft.yml"
-    shell:
-        """
-        mafft --auto --thread {threads} {input.fas:q} 2> {output.log:q} | \
-            # convert ambiguous bases and non-gap characters to N
-            sed "#^[^>]# s#[^ACGTNacgtn]#n#g" > {output.fas:q}
-        """
+  message:
+    """
+    Align the sequences.
+    """
+  input:
+    fas = rules.extract.output.fas
+  output:
+    fas = root / "mafft" / "msa.fasta",
+    log = root / "mafft" / "msa.log"
+  log:
+    logs / "mafft.log"
+  params:
+    bdb = config["bdb"]
+  threads:
+    16
+  conda:
+    "envs/mafft.yml"
+  shell:
+    """
+    mafft --auto --thread {threads} {input.fas:q} 2> {output.log:q} | \
+      # convert ambiguous bases and non-gap characters to N
+      sed "#^[^>]# s#[^ACGTNacgtn]#n#g" > {output.fas:q}
+    """
 
 rule gubbins:
-    message:
-        """
-        Infer maximum-likelihood tree and recombination events.
-        """
-    input:
-        msa = rules.mafft.output.fas
-    output:
-        log = root / "gubbins" / "gub.log"
-    log:
-        logs / "gubbins.log"
-    params:
-        pre = root / "gubbins" / "gub",
-        itr = config["itr"],
-        gap = config["gap"]
-    threads:
-        16
-    conda:
-        "envs/gubbins.yml"
-    shell:
-        """
-        run_gubbins.py {input.msa:q} \
-            -i {params.itr:q} -f {params.gap:q} -p {params.pre:q} -c {threads} > {output.log:q}
-        """
+  message:
+    """
+    Infer maximum-likelihood tree and recombination events.
+    """
+  input:
+    msa = rules.mafft.output.fas
+  output:
+    log = root / "gubbins" / "gub.log"
+  log:
+    logs / "gubbins.log"
+  params:
+    pre = root / "gubbins" / "gub",
+    itr = config["itr"],
+    gap = config["gap"]
+  threads:
+    16
+  conda:
+    "envs/gubbins.yml"
+  shell:
+    """
+    run_gubbins.py {input.msa:q} \
+      -i {params.itr:q} -f {params.gap:q} -p {params.pre:q} -c {threads} > {output.log:q}
+    """
 
 rule iqtree:
-    message:
-        """
-        Infer maximum-likelihood tree and model of sequence evolution.
-        """
-    input:
-        msa = rules.mafft.output.fas
-    output:
-        log = root / "iqtree" / "iqt.log"
-    log:
-        logs / "iqtree.log"
-    params:
-        pre = root / "iqtree" / "iqt"
-    threads:
-        16
-    conda:
-        "envs/iqtree.yml"
-    shell:
-        """
-        iqtree -s {input.msa:q} -pre "{params.pre}" -m TESTONLY -nt {threads} >/dev/null 2>&1
-        """
+  message:
+    """
+    Infer maximum-likelihood tree and model of sequence evolution.
+    """
+  input:
+    msa = rules.mafft.output.fas
+  output:
+    log = root / "iqtree" / "iqt.log"
+  log:
+    logs / "iqtree.log"
+  params:
+    pre = root / "iqtree" / "iqt"
+  threads:
+    16
+  conda:
+    "envs/iqtree.yml"
+  shell:
+    """
+    iqtree -s {input.msa:q} -pre "{params.pre}" -m TESTONLY -nt {threads} >/dev/null 2>&1
+    """
 
 rule bactdate:
-    message:
-        """
-        Infer chronogram from Gubbins output using BactDating: {params.mod} {params.itr}/{params.rep}.
-        """
-    input:
-        log = rules.gubbins.output.log
-    output:
-        qs = root / "bactdate" / "{mod}-{rep}.qs"
-    log:
-        logs / "bactdate" / "{mod}-{rep}.log"
-    params:
-        mod = lambda wildcards, output: Path(output[0]).stem.split("-")[0],
-        itr = lambda wildcards, output: Path(output[0]).stem.split("-")[1],
-        rep = config["rep"],
-        nbi = config["nbi"],
-        thn = config["thn"]
-    threads:
-        1
-    conda:
-        "envs/R.yml"
-    script:
-        "scripts/bactdate.R"
+  message:
+    """
+    Infer chronogram from Gubbins output using BactDating: {params.mod} {params.itr}/{params.rep}.
+    """
+  input:
+    log = rules.gubbins.output.log
+  output:
+    qs = root / "bactdate" / "{mod}-{rep}.qs"
+  log:
+    logs / "bactdate" / "{mod}-{rep}.log"
+  params:
+    mod = lambda wildcards, output: Path(output[0]).stem.split("-")[0],
+    itr = lambda wildcards, output: Path(output[0]).stem.split("-")[1],
+    rep = config["rep"],
+    nbi = config["nbi"],
+    thn = config["thn"]
+  threads:
+    1
+  conda:
+    "envs/R.yml"
+  script:
+    "scripts/bactdate.R"
 
 rule beautify:
-    message:
-        """
-        Generate BEAST XML input files: {params.clock}-{params.coal} {params.itr}/{params.rep}.
-        """
-    input:
-        fas = rules.mafft.output.fas,
-        log = rules.iqtree.output.log
-    output:
-        xml = root / "beautify" / "{clock}-{coal}-{rep}.xml"
-    log:
-        out = logs / "beautify" / "{clock}-{coal}-{rep}.log"
-    params:
-        clock = lambda wildcards, output: Path(output[0]).stem.split("-")[0],
-        coal = lambda wildcards, output: Path(output[0]).stem.split("-")[1],
-        itr = lambda wildcards, output: Path(output[0]).stem.split("-")[2],
-        stem = lambda wildcards, output: Path(output[0]).stem,
-        rep = config["rep"],
-        mcmc_len = config["mcmc_len"],
-        mcmc_echo = config["mcmc_echo"],
-        mle_len = config["mle_len"],
-        mle_echo = config["mle_echo"],
-        mle_steps = config["mle_steps"]
-    threads:
-        1
-    conda:
-        "envs/py.yml"
-    script:
-        "scripts/beautify/beautify.py"
+  message:
+    """
+    Generate BEAST XML input files: {params.clock}-{params.coal} {params.itr}/{params.rep}.
+    """
+  input:
+    fas = rules.mafft.output.fas,
+    log = rules.iqtree.output.log
+  output:
+    xml = root / "beautify" / "{clock}-{coal}-{rep}.xml"
+  log:
+    out = logs / "beautify" / "{clock}-{coal}-{rep}.log"
+  params:
+    clock = lambda wildcards, output: Path(output[0]).stem.split("-")[0],
+    coal = lambda wildcards, output: Path(output[0]).stem.split("-")[1],
+    itr = lambda wildcards, output: Path(output[0]).stem.split("-")[2],
+    stem = lambda wildcards, output: Path(output[0]).stem,
+    rep = config["rep"],
+    mcmc_len = config["mcmc_len"],
+    mcmc_echo = config["mcmc_echo"],
+    mle_len = config["mle_len"],
+    mle_echo = config["mle_echo"],
+    mle_steps = config["mle_steps"]
+  threads:
+    1
+  conda:
+    "envs/py.yml"
+  script:
+    "scripts/beautify/beautify.py"
+
+rule beast:
+  message:
+    """
+    Infer chronogram using BEAST: {params.clock}-{params.coal} {params.itr}/{params.rep}.
+    """
+  input:
+    xml = Path(rules.beautify.output.xml).absolute()
+  output:
+    trees = root / "beast" / "{clock}-{coal}-{rep}.trees"
+  log:
+    logs.joinpath("beast").joinpath("{clock}-{coal}-{rep}.log").absolute()
+  params:
+    clock = lambda wildcards, output: Path(output[0]).stem.split("-")[0],
+    coal = lambda wildcards, output: Path(output[0]).stem.split("-")[1],
+    itr = lambda wildcards, output: Path(output[0]).stem.split("-")[2],
+    rep = config["rep"],
+    root = root / "beast"
+  threads:
+     16
+  conda:
+     "envs/beast.yml"
+  shell:
+    """
+    mkdir -p {params.root:q} {logs:q} && \
+    cd {params.root:q} || exit && \
+    beast -overwrite -threads {threads} {input.xml:q} > {log:q}
+    """
