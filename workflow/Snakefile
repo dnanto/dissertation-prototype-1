@@ -31,12 +31,11 @@ rule all:
       rep=range(1, config["rep"] + 1)
     ),
     expand(
-      root / "beast" / "{clock}-{coal}-{rep}.trees",
+      root / "treeannotator" / "{clock}-{coal}-{rep}.tree",
       clock=config["clock"],
       coal=config["coal"],
       rep=range(1, config["rep"] + 1)
     )
-
 
 rule rgithub:
   message:
@@ -297,7 +296,32 @@ rule beast:
      "envs/beast.yml"
   shell:
     """
-    mkdir -p {params.root:q} {logs:q} && \
+    mkdir -p {params.root:q} && \
     cd {params.root:q} || exit && \
     beast -overwrite -threads {threads} {input.xml:q} > {log:q}
+    """
+
+rule treeannotator:
+  message:
+    """
+    Calculate the MCC tree w/ burn-in @ {params.burnin} & limit @ {params.limit}.
+    """
+  input:
+    trees = root / "beast" / "{clock}-{coal}-{rep}.trees"
+  output:
+    mcc = root / "treeannotator" / "{clock}-{coal}-{rep}.tree"
+  log:
+    mcc = root / "treeannotator" / "{clock}-{coal}-{rep}.log"
+  params:
+    burnin = max(1, int(round(config["burnin"] * config["mcmc_len"]))),
+    limit = config["limit"]
+  conda:
+     "envs/beast.yml"
+  threads:
+    1
+  shell:
+    """
+    treeannotator \
+        -heights median -burnin {params.burnin} -limit {params.limit} \
+        {input.trees:q} {output.mcc:q} > {log:q} 2>&1
     """

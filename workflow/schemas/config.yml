@@ -97,13 +97,14 @@ properties:
     default: 10
   
   # treeannotator
-  treeannotator:
-    type: array
-    description: the treeannotator parameters (note - burnin is a percentage in [0, 1])
-    default:
-      - heights mean
-      - burnin 0.10
-      - limit 0.5
+  burnin:
+    type: number
+    description: the burnin percentage in [0, 1]
+    default: 0.10
+  limit:
+    type: number
+    description: the MCC limit
+    default: 0.50
 
   # output
   out:
