@@ -17,7 +17,6 @@ logs = Path("logs")
 
 localrules:
   all,
-  rgithub,
   ffref,
   popmeta,
   extract,
@@ -48,7 +47,7 @@ rule ffref:
     fas = root / "ffref" / "ref.fasta",
     gbk = root / "ffref" / "ref.gb"
   log:
-    logs / "ffref.log"
+    log = logs / "ffref" / "ffref.log"
   params:
     acc = config["acc"],
     pid = config["pid"]
@@ -69,13 +68,13 @@ rule blast:
   output:
     tsv = root / "blast" / "hits.tsv"
   log:
-    logs / "blast.log"
+    log = logs / "blast" / "blast.log"
   params:
     bdb = config["bdb"]
   conda:
     "envs/blast.yml"
   threads:
-    16
+    32
   shell:
     """
     blastn \
@@ -97,7 +96,7 @@ rule popmeta:
     hit = rules.blast.output.tsv,
     tsv = config["tsv"]
   log:
-    logs / "popmeta.log"
+    log = logs / "popmeta" / "popmeta.log"
   params:
     thr = config["thr"]
   output:
@@ -120,7 +119,7 @@ rule extract:
   output:
     fas = root / "extract" / "seq.fasta"
   log:
-    logs / "exract.log"
+    log = logs / "extract" / "exract.log"
   params:
     bdb = config["bdb"]
   threads:
@@ -144,11 +143,11 @@ rule mafft:
     fas = root / "mafft" / "msa.fasta",
     log = root / "mafft" / "msa.log"
   log:
-    logs / "mafft.log"
+    log = logs / "mafft" / "mafft.log"
   params:
     bdb = config["bdb"]
   threads:
-    16
+    32
   conda:
     "envs/mafft.yml"
   shell:
@@ -168,13 +167,13 @@ rule gubbins:
   output:
     log = root / "gubbins" / "gub.log"
   log:
-    logs / "gubbins.log"
+    log = logs / "gubbins" / "gubbins.log"
   params:
     pre = root / "gubbins" / "gub",
     itr = config["itr"],
     gap = config["gap"]
   threads:
-    16
+    32
   conda:
     "envs/gubbins.yml"
   shell:
@@ -193,16 +192,16 @@ rule iqtree:
   output:
     log = root / "iqtree" / "iqt.log"
   log:
-    logs / "iqtree.log"
+    log = logs / "iqtree" / "iqtree.log"
   params:
     pre = root / "iqtree" / "iqt"
   threads:
-    16
+    32
   conda:
     "envs/iqtree.yml"
   shell:
     """
-    iqtree -s {input.msa:q} -pre "{params.pre}" -m TESTONLY -nt {threads} >/dev/null 2>&1
+    iqtree -redo -s {input.msa:q} -pre "{params.pre}" -m TESTONLY -nt {threads} > /dev/null 2> {log:q}
     """
 
 rule bactdate:
@@ -215,7 +214,7 @@ rule bactdate:
   output:
     qs = root / "bactdate" / "{mod}-{rep}.qs"
   log:
-    logs / "bactdate" / "{mod}-{rep}.log"
+    log = logs / "bactdate" / "{mod}-{rep}.log"
   params:
     mod = lambda wildcards, output: Path(output[0]).stem.split("-")[0],
     itr = lambda wildcards, output: Path(output[0]).stem.split("-")[1],
@@ -240,7 +239,7 @@ rule beautify:
   output:
     xml = root / "beautify" / "{clock}-{coal}-{rep}.xml"
   log:
-    out = logs / "beautify" / "{clock}-{coal}-{rep}.log"
+    log = logs / "beautify" / "{clock}-{coal}-{rep}.log"
   params:
     mcmc_len = config["mcmc_len"],
     mcmc_echo = config["mcmc_echo"],
@@ -269,7 +268,7 @@ rule beast:
   output:
     trees = root / "beast" / "{clock}-{coal}-{rep}.trees"
   log:
-    logs.joinpath("beast").joinpath("{clock}-{coal}-{rep}.log").absolute()
+    log = root / "beast" / "{clock}-{coal}-{rep}.log"
   params:
     root = root / "beast",
     pwd = Path().absolute(),
@@ -278,14 +277,14 @@ rule beast:
     coal = lambda wildcards, output: Path(output[0]).stem.split("-")[1],
     itr = lambda wildcards, output: Path(output[0]).stem.split("-")[2]
   threads:
-     16
+     32
   conda:
      "envs/beast.yml"
   shell:
     """
     mkdir -p {params.root:q}
     cd {params.root:q} || exit
-    beast -overwrite -threads {threads} {params.pwd:q}/{input.xml:q} > {log:q}
+    beast -overwrite -threads {threads} {params.pwd:q}/{input.xml:q} > {params.pwd:q}/{log:q}
     """
 
 rule treeannotator:
@@ -299,7 +298,7 @@ rule treeannotator:
   output:
     mcc = root / "treeannotator" / "{clock}-{coal}-{rep}.tree"
   log:
-    mcc = root / "treeannotator" / "{clock}-{coal}-{rep}.log"
+    log = root / "treeannotator" / "{clock}-{coal}-{rep}.log"
   params:
     burnin = max(1, int(round(config["burnin"] * config["mcmc_len"]))),
     limit = config["limit"],
