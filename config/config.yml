@@ -1,5 +1,3 @@
-acc: "AY594253.1"
-pid: "AAT97450.1"
 fdb: "resources/genbank/10508.db"
 bdb: "resources/blast/10508"
 tsv: "resources/genbank/10508.tsv"
