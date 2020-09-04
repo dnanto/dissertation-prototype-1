@@ -41,8 +41,6 @@ rule ffref:
     """
     Retrieve {params.acc} {params.pid} from {input.fdb:q}, generating a FASTA/GenBank file.
     """
-  group:
-    "evopopgen"
   input:
     fdb = config["fdb"]
   output:
@@ -65,8 +63,6 @@ rule blast:
     """
     Run BLAST+, optimizing for highly similar sequences, querying {params.bdb:q}.
     """
-  group:
-    "evopopgen"
   input:
     qry = rules.ffref.output.fas
   output:
@@ -96,8 +92,6 @@ rule popmeta:
     """
     Generate the measurably evolving population metadata set, filter qpidcov >= {params.thr}.
     """
-  group:
-    "evopopgen"
   input:
     hit = rules.blast.output.tsv,
     tsv = config["tsv"]
@@ -119,8 +113,6 @@ rule extract:
     """
     Extract sequences from {params.bdb:q}.
     """
-  group:
-    "evopopgen"
   input:
     ssv = rules.popmeta.output.ssv,
     sed = rules.popmeta.output.sed
@@ -145,8 +137,6 @@ rule mafft:
     """
     Perform multiple sequence alignment using MAFFT.
     """
-  group:
-    "evopopgen"
   input:
     fas = rules.extract.output.fas
   output:
@@ -172,8 +162,6 @@ rule gubbins:
     """
     Infer maximum-likelihood tree and recombination events using Gubbins.
     """
-  group:
-    "evopopgen"
   input:
     msa = rules.mafft.output.fas
   output:
@@ -199,8 +187,6 @@ rule iqtree:
     """
     Infer maximum-likelihood tree and model of sequence evolution.
     """
-  group:
-    "evopopgen"
   input:
     msa = rules.mafft.output.fas
   output:
