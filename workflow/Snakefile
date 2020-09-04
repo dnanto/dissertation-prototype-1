@@ -169,7 +169,8 @@ rule gubbins:
   log:
     log = logs / "gubbins" / "gubbins.log"
   params:
-    pre = root / "gubbins" / "gub",
+    pwd = Path().absolute(),
+    root = root / "gubbins",
     itr = config["itr"],
     gap = config["gap"]
   threads:
@@ -178,8 +179,10 @@ rule gubbins:
     "envs/gubbins.yml"
   shell:
     """
-    run_gubbins.py {input.msa:q} \
-      -i {params.itr} -f {params.gap} -p {params.pre:q} -c {threads} > {output.log:q}
+    mkdir -p {params.root:q}
+    cd {params.root:q} || exit
+    run_gubbins.py {params.pwd:q}/{input.msa:q} \
+      -i {params.itr} -f {params.gap} -p gub -c {threads} > {params.pwd:q}/{output.log:q}
     """
 
 rule iqtree:
@@ -270,8 +273,8 @@ rule beast:
   log:
     log = root / "beast" / "{clock}-{coal}-{nbeast}.log"
   params:
-    root = root / "beast",
     pwd = Path().absolute(),
+    root = root / "beast",
     clock = lambda wildcards, output: Path(output[0]).stem.split("-")[0],
     coal = lambda wildcards, output: Path(output[0]).stem.split("-")[1],
     rep = lambda wildcards, output: Path(output[0]).stem.split("-")[2],
