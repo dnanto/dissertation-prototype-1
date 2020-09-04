@@ -25,15 +25,15 @@ localrules:
 rule all:
   input:
     expand(
-      root / "bactdate" / "{mod}-{rep}.qs",
-      mod=config["mod"],
-      rep=range(1, config["rep"] + 1)
+      root / "bactdate" / "{model}-{nbac}.qs",
+      model=config["model"],
+      nbac=range(1, config["nbac"] + 1)
     ),
     expand(
-      root / "treeannotator" / "{clock}-{coal}-{rep}.tree",
+      root / "treeannotator" / "{clock}-{coal}-{nbeast}.tree",
       clock=config["clock"],
       coal=config["coal"],
-      rep=range(1, config["rep"] + 1)
+      nbeast=range(1, config["nbeast"] + 1)
     )
 
 rule ffref:
@@ -135,7 +135,7 @@ rule extract:
 rule mafft:
   message:
     """
-    Align the sequences.
+    Perform multiple sequence alignment using MAFFT.
     """
   input:
     fas = rules.extract.output.fas
@@ -160,7 +160,7 @@ rule mafft:
 rule gubbins:
   message:
     """
-    Infer maximum-likelihood tree and recombination events.
+    Infer maximum-likelihood tree and recombination events using Gubbins.
     """
   input:
     msa = rules.mafft.output.fas
@@ -179,7 +179,7 @@ rule gubbins:
   shell:
     """
     run_gubbins.py {input.msa:q} \
-      -i {params.itr:q} -f {params.gap:q} -p {params.pre:q} -c {threads} > {output.log:q}
+      -i {params.itr} -f {params.gap} -p {params.pre:q} -c {threads} > {output.log:q}
     """
 
 rule iqtree:
@@ -201,26 +201,26 @@ rule iqtree:
     "envs/iqtree.yml"
   shell:
     """
-    iqtree -redo -s {input.msa:q} -pre "{params.pre}" -m TESTONLY -nt {threads} > /dev/null 2> {log:q}
+    iqtree -redo -s {input.msa:q} -pre "{params.pre:q}" -m TESTONLY -nt {threads} > /dev/null 2> {log:q}
     """
 
 rule bactdate:
   message:
     """
-    Infer chronogram from Gubbins output using BactDating: {params.mod} {params.itr}/{params.rep}.
+    Infer recombination-aware chronogram using BactDating: {params.mod} {params.rep}/{params.nrep}.
     """
   input:
     log = rules.gubbins.output.log
   output:
-    qs = root / "bactdate" / "{mod}-{rep}.qs"
+    qs = root / "bactdate" / "{model}-{nbac}.qs"
   log:
-    log = logs / "bactdate" / "{mod}-{rep}.log"
+    log = logs / "bactdate" / "{model}-{nbac}.log"
   params:
     mod = lambda wildcards, output: Path(output[0]).stem.split("-")[0],
-    itr = lambda wildcards, output: Path(output[0]).stem.split("-")[1],
-    rep = config["rep"],
-    nbi = config["nbi"],
-    thn = config["thn"]
+    rep = lambda wildcards, output: Path(output[0]).stem.split("-")[1],
+    nrep = config["nbac"],
+    nbi = config["nbIts"],
+    thn = config["thin"]
   threads:
     1
   conda:
@@ -231,26 +231,26 @@ rule bactdate:
 rule beautify:
   message:
     """
-    Generate BEAST XML input files: {params.clock}-{params.coal} {params.itr}/{params.rep}.
+    Generate BEAST XML input files: {params.clock}-{params.coal} {params.rep}/{params.nrep}.
     """
   input:
     fas = rules.mafft.output.fas,
     log = rules.iqtree.output.log
   output:
-    xml = root / "beautify" / "{clock}-{coal}-{rep}.xml"
+    xml = root / "beautify" / "{clock}-{coal}-{nbeast}.xml"
   log:
-    log = logs / "beautify" / "{clock}-{coal}-{rep}.log"
+    log = logs / "beautify" / "{clock}-{coal}-{nbeast}.log"
   params:
     mcmc_len = config["mcmc_len"],
     mcmc_echo = config["mcmc_echo"],
     mle_len = config["mle_len"],
     mle_echo = config["mle_echo"],
-    mle_steps = config["mle_steps"],
-    rep = config["rep"],
+    mle_step = config["mle_step"],
     stem = lambda wildcards, output: Path(output[0]).stem,
     clock = lambda wildcards, output: Path(output[0]).stem.split("-")[0],
     coal = lambda wildcards, output: Path(output[0]).stem.split("-")[1],
-    itr = lambda wildcards, output: Path(output[0]).stem.split("-")[2]
+    rep = lambda wildcards, output: Path(output[0]).stem.split("-")[2],
+    nrep = config["nbeast"]
   threads:
     1
   conda:
@@ -261,21 +261,21 @@ rule beautify:
 rule beast:
   message:
     """
-    Infer chronogram using BEAST: {params.clock}-{params.coal} {params.itr}/{params.rep}.
+    Infer chronogram using BEAST: {params.clock}-{params.coal} {params.rep}/{params.nrep}.
     """
   input:
-    xml = root / "beautify" / "{clock}-{coal}-{rep}.xml"
+    xml = root / "beautify" / "{clock}-{coal}-{nbeast}.xml"
   output:
-    trees = root / "beast" / "{clock}-{coal}-{rep}.trees"
+    trees = root / "beast" / "{clock}-{coal}-{nbeast}.trees"
   log:
-    log = root / "beast" / "{clock}-{coal}-{rep}.log"
+    log = root / "beast" / "{clock}-{coal}-{nbeast}.log"
   params:
     root = root / "beast",
     pwd = Path().absolute(),
-    rep = config["rep"],
     clock = lambda wildcards, output: Path(output[0]).stem.split("-")[0],
     coal = lambda wildcards, output: Path(output[0]).stem.split("-")[1],
-    itr = lambda wildcards, output: Path(output[0]).stem.split("-")[2]
+    rep = lambda wildcards, output: Path(output[0]).stem.split("-")[2],
+    nrep = config["nbeast"]
   threads:
      config["threads"]
   conda:
@@ -284,28 +284,31 @@ rule beast:
     """
     mkdir -p {params.root:q}
     cd {params.root:q} || exit
+    # use overwrite for now until a checkpoint method is devised...
     beast -overwrite -threads {threads} {params.pwd:q}/{input.xml:q} > {params.pwd:q}/{log:q}
     """
 
 rule treeannotator:
   message:
     """
-    Calculate the MCC tree w/ burn-in @ {params.burnin} & limit @ {params.limit}:
-    {params.clock}-{params.coal} {params.itr}/{params.rep}.
+    Calculate the MCC tree w/
+    {params.heights} heights & burn-in @ {params.burnin} & limit @ {params.limit}:
+    {params.clock}-{params.coal} {params.rep}/{params.nrep}.
     """
   input:
-    trees = root / "beast" / "{clock}-{coal}-{rep}.trees"
+    trees = root / "beast" / "{clock}-{coal}-{nbeast}.trees"
   output:
-    mcc = root / "treeannotator" / "{clock}-{coal}-{rep}.tree"
+    mcc = root / "treeannotator" / "{clock}-{coal}-{nbeast}.tree"
   log:
-    log = root / "treeannotator" / "{clock}-{coal}-{rep}.log"
+    log = root / "treeannotator" / "{clock}-{coal}-{nbeast}.log"
   params:
+    heights = config["heights"],
     burnin = max(1, int(round(config["burnin"] * config["mcmc_len"]))),
     limit = config["limit"],
     clock = lambda wildcards, output: Path(output[0]).stem.split("-")[0],
     coal = lambda wildcards, output: Path(output[0]).stem.split("-")[1],
-    itr = lambda wildcards, output: Path(output[0]).stem.split("-")[2],
-    rep = config["rep"]
+    rep = lambda wildcards, output: Path(output[0]).stem.split("-")[2],
+    nrep = config["nbeast"]
   conda:
      "envs/beast.yml"
   threads:
@@ -313,6 +316,6 @@ rule treeannotator:
   shell:
     """
     treeannotator \
-        -heights median -burnin {params.burnin} -limit {params.limit} \
+        -heights {params.heights} -burnin {params.burnin} -limit {params.limit} \
         {input.trees:q} {output.mcc:q} > {log:q} 2>&1
     """

@@ -143,7 +143,7 @@ def psss_tags(soup, path, **kwargs):
             soup.beast.append(ele)
         stem = kwargs["stem"]
         soup.select_one("marginalLikelihoodEstimator")["chainLength"] = kwargs["mle_len"]
-        soup.select_one("marginalLikelihoodEstimator")["pathSteps"] = kwargs["mle_steps"]
+        soup.select_one("marginalLikelihoodEstimator")["pathSteps"] = kwargs["mle_step"]
         soup.select_one("#MLELog")["logEvery"] = kwargs["mle_echo"]
         soup.select_one("#MLELog")["fileName"] = stem + ".mle.log"
         soup.select_one("pathSamplingAnalysis")["fileName"] = stem + ".mle.log"

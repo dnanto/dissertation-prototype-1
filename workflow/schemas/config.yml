@@ -40,7 +40,7 @@ properties:
     default: 25
 
   # BactDating
-  mod:
+  model:
     type: array
     description: the models to use (poisson, negbin, strictgamma, relaxedgamma, mixedgamma, arc, carc, or mixedcarc)
     default:
@@ -48,30 +48,30 @@ properties:
       - strictgamma
       - relaxedgamma
       - mixedgamma
-  thn:
-    type: integer
-    description: the thining interval between recorded MCMC samples
-    default: 1
-  nbi:
+  nbIts:
     type: integer
     description: the number of MCMC iterations to perform
-    default: 250000
-  rep:
+    default: 10000
+  thin:
+    type: integer
+    description: the thining interval between recorded MCMC samples
+    default: 10
+  nbac:
     type: integer
     description: the number of replicates per model
     default: 3
 
-  # beautify
+  # beautify/BEAST
   clock:
     type: array
-    description: the molecular clock model
+    description: the clock models to use (rex [= relaxed exponential], rln [= relaxed lognormal], or str [= strict])
     default:
       - rex
       - rln
       - str
   coal:
     type: array
-    description: the population coalescent model
+    description: the coalescent models to use (con [= constant] or exp [= exponential])
     default:
       - con
       - exp
@@ -85,25 +85,33 @@ properties:
     default: 10
   mle_len:
     type: integer
-    description: the chain length for MLE
+    description: the chain length for PS/SS MLE
     default: 1000
   mle_echo:
     type: integer
-    description: the sampling frequency for MLE
+    description: the sampling frequency for PS/SS MLE
     default: 10
-  mle_steps:
+  mle_step:
     type: integer
-    description: the number of path steps for MLE
+    description: the number of path steps for PS/SS MLE
     default: 10
+  nbeast:
+    type: integer
+    description: the number of replicates per clocl+coal model
+    default: 3
   
   # treeannotator
+  heights:
+    type: string
+    description: the heights - an option of 'keep' (default), 'median', 'mean' or 'ca'
+    default: median
   burnin:
     type: number
-    description: the burnin percentage in [0, 1]
+    description: the burnin - the number of states to be considered as 'burn-in', a percentatge in [0, 1]
     default: 0.10
   limit:
     type: number
-    description: the MCC limit
+    description: the limit - the minimum posterior probability for a node to be annotated
     default: 0.50
 
   # threads
