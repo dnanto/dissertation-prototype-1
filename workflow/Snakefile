@@ -41,6 +41,8 @@ rule ffref:
     """
     Retrieve {params.acc} {params.pid} from {input.fdb:q}, generating a FASTA/GenBank file.
     """
+  group:
+    "phase-1"
   input:
     fdb = config["fdb"]
   output:
@@ -63,6 +65,8 @@ rule blast:
     """
     Run BLAST+, optimizing for highly similar sequences, querying {params.bdb:q}.
     """
+  group:
+    "phase-1"
   input:
     qry = rules.ffref.output.fas
   output:
@@ -92,6 +96,8 @@ rule popmeta:
     """
     Generate the measurably evolving population metadata set, filter qpidcov >= {params.thr}.
     """
+  group:
+    "phase-1"
   input:
     hit = rules.blast.output.tsv,
     tsv = config["tsv"]
@@ -113,6 +119,8 @@ rule extract:
     """
     Extract sequences from {params.bdb:q}.
     """
+  group:
+    "phase-1"
   input:
     ssv = rules.popmeta.output.ssv,
     sed = rules.popmeta.output.sed
@@ -137,6 +145,8 @@ rule mafft:
     """
     Perform multiple sequence alignment using MAFFT.
     """
+  group:
+    "phase-1"
   input:
     fas = rules.extract.output.fas
   output:
@@ -162,6 +172,8 @@ rule gubbins:
     """
     Infer maximum-likelihood tree and recombination events using Gubbins.
     """
+  group:
+    "phase-1"
   input:
     msa = rules.mafft.output.fas
   output:
@@ -187,6 +199,8 @@ rule iqtree:
     """
     Infer maximum-likelihood tree and model of sequence evolution.
     """
+  group:
+    "phase-1"
   input:
     msa = rules.mafft.output.fas
   output:
@@ -209,6 +223,8 @@ rule bactdate:
     """
     Infer recombination-aware chronogram using BactDating: {params.mod} {params.rep}/{params.nrep}.
     """
+  group:
+    "phase-2"
   input:
     log = rules.gubbins.output.log
   output:
@@ -233,6 +249,8 @@ rule beautify:
     """
     Generate BEAST XML input files: {params.clock}-{params.coal} {params.rep}/{params.nrep}.
     """
+  group:
+    "phase-3"
   input:
     fas = rules.mafft.output.fas,
     log = rules.iqtree.output.log
@@ -263,6 +281,8 @@ rule beast:
     """
     Infer chronogram using BEAST: {params.clock}-{params.coal} {params.rep}/{params.nrep}.
     """
+  group:
+    "phase-3"
   input:
     xml = root / "beautify" / "{clock}-{coal}-{nbeast}.xml"
   output:
@@ -295,6 +315,8 @@ rule treeannotator:
     {params.heights} heights & burn-in @ {params.burnin} & limit @ {params.limit}:
     {params.clock}-{params.coal} {params.rep}/{params.nrep}.
     """
+  group:
+    "phase-3"
   input:
     trees = root / "beast" / "{clock}-{coal}-{nbeast}.trees"
   output:
