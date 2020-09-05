@@ -90,7 +90,7 @@ rule blast:
 rule popmeta:
   message:
     """
-    Generate the measurably evolving population metadata set, filter qpidcov >= {params.thr}.
+    Generate the measurably evolving population metadata set: filter qpidcov >= {params.thr}.
     """
   input:
     hit = rules.blast.output.tsv,
