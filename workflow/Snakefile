@@ -271,7 +271,7 @@ rule beast:
   output:
     trees = root / "beast" / "{clock}-{coal}-{nbeast}.trees"
   log:
-    log = root / "beast" / "{clock}-{coal}-{nbeast}.log"
+    log = logs / "beast" / "{clock}-{coal}-{nbeast}.log"
   params:
     pwd = Path().absolute(),
     root = root / "beast",
